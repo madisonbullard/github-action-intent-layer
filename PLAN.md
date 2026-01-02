@@ -171,7 +171,7 @@ prompts:
 
 ### Phase 2: Configuration & Parsing
 - [x] 2.1 Define Zod schema for all action inputs (including `mode`)
-- [ ] 2.2 Implement root `.intentlayerignore` parser (gitignore syntax)
+- [x] 2.2 Implement root `.intentlayerignore` parser (gitignore syntax)
 - [ ] 2.3 Implement pattern-matched prompt resolver
 - [ ] 2.4 Implement config validation and defaults
 - [ ] 2.5 Write unit tests for config parsing

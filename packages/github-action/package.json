@@ -14,6 +14,7 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
+		"ignore": "7.0.5",
 		"zod": "4.3.4"
 	}
 }
