@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	calculateCoveredCodeTokens,
 	calculateTokenBudget,
 	countLines,
 	countTokens,
@@ -254,5 +255,193 @@ describe("countTokensWithOptions", () => {
 		const content = "a\0".repeat(10000);
 		const result = countTokensWithOptions(content, { fileMaxLines: 5 });
 		expect(result.skipReason).toBe("binary");
+	});
+});
+
+describe("calculateCoveredCodeTokens", () => {
+	test("returns zero totals for empty file list", () => {
+		const result = calculateCoveredCodeTokens([], new Map(), {});
+
+		expect(result.totalTokens).toBe(0);
+		expect(result.filesCounted).toBe(0);
+		expect(result.filesSkipped).toBe(0);
+		expect(result.fileDetails).toHaveLength(0);
+	});
+
+	test("counts tokens for single file", () => {
+		const fileContents = new Map([
+			["src/index.ts", "abcdefgh"], // 8 chars = 2 tokens
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/index.ts"],
+			fileContents,
+			{},
+		);
+
+		expect(result.totalTokens).toBe(2);
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(0);
+		expect(result.fileDetails).toHaveLength(1);
+		expect(result.fileDetails[0]).toEqual({
+			path: "src/index.ts",
+			tokens: 2,
+			skipped: false,
+			skipReason: undefined,
+		});
+	});
+
+	test("counts tokens across multiple files", () => {
+		const fileContents = new Map([
+			["src/index.ts", "abcd"], // 4 chars = 1 token
+			["src/utils.ts", "abcdefgh"], // 8 chars = 2 tokens
+			["src/config.ts", "abcdefghijkl"], // 12 chars = 3 tokens
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/index.ts", "src/utils.ts", "src/config.ts"],
+			fileContents,
+			{},
+		);
+
+		expect(result.totalTokens).toBe(6);
+		expect(result.filesCounted).toBe(3);
+		expect(result.filesSkipped).toBe(0);
+		expect(result.fileDetails).toHaveLength(3);
+	});
+
+	test("skips binary files", () => {
+		const fileContents = new Map([
+			["src/index.ts", "abcdefgh"], // Normal: 8 chars = 2 tokens
+			["assets/image.png", "binary\0content"], // Binary
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/index.ts", "assets/image.png"],
+			fileContents,
+			{ skipBinaryFiles: true },
+		);
+
+		expect(result.totalTokens).toBe(2);
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(1);
+		expect(result.fileDetails).toHaveLength(2);
+
+		const binaryFile = result.fileDetails.find(
+			(f) => f.path === "assets/image.png",
+		);
+		expect(binaryFile?.skipped).toBe(true);
+		expect(binaryFile?.skipReason).toBe("binary");
+		expect(binaryFile?.tokens).toBe(0);
+	});
+
+	test("skips large files", () => {
+		const fileContents = new Map([
+			["src/small.ts", "abcd"], // Small: 4 chars = 1 token
+			["src/large.ts", "line\n".repeat(100)], // 100 lines
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/small.ts", "src/large.ts"],
+			fileContents,
+			{ fileMaxLines: 50 },
+		);
+
+		expect(result.totalTokens).toBe(1);
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(1);
+
+		const largeFile = result.fileDetails.find((f) => f.path === "src/large.ts");
+		expect(largeFile?.skipped).toBe(true);
+		expect(largeFile?.skipReason).toBe("too_large");
+		expect(largeFile?.tokens).toBe(0);
+	});
+
+	test("ignores files not in fileContents map", () => {
+		const fileContents = new Map([
+			["src/index.ts", "abcd"], // 4 chars = 1 token
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/index.ts", "src/missing.ts"],
+			fileContents,
+			{},
+		);
+
+		// missing.ts is silently ignored (not in fileContents)
+		expect(result.totalTokens).toBe(1);
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(0);
+		expect(result.fileDetails).toHaveLength(1);
+	});
+
+	test("does not skip binary when option disabled", () => {
+		const fileContents = new Map([
+			["assets/image.png", "hello\0world"], // Binary but counted: 11 chars = 3 tokens
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["assets/image.png"],
+			fileContents,
+			{ skipBinaryFiles: false },
+		);
+
+		expect(result.totalTokens).toBe(3);
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(0);
+	});
+
+	test("handles mixed skipped and counted files", () => {
+		const fileContents = new Map([
+			["src/index.ts", "abcdefgh"], // Normal: 2 tokens
+			["src/binary.bin", "data\0data"], // Binary: skipped
+			["src/huge.ts", "a\n".repeat(10000)], // Too large: skipped
+			["src/util.ts", "abcd"], // Normal: 1 token
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/index.ts", "src/binary.bin", "src/huge.ts", "src/util.ts"],
+			fileContents,
+			{ skipBinaryFiles: true, fileMaxLines: 8000 },
+		);
+
+		expect(result.totalTokens).toBe(3); // 2 + 1
+		expect(result.filesCounted).toBe(2);
+		expect(result.filesSkipped).toBe(2);
+		expect(result.fileDetails).toHaveLength(4);
+	});
+
+	test("uses default options when not specified", () => {
+		const fileContents = new Map([
+			["src/index.ts", "abcd"],
+			["src/binary.bin", "data\0data"], // Should be skipped by default
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["src/index.ts", "src/binary.bin"],
+			fileContents,
+		);
+
+		// Binary files skipped by default
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(1);
+	});
+
+	test("provides accurate file details in order", () => {
+		const fileContents = new Map([
+			["a.ts", "aaaa"], // 1 token
+			["b.ts", "bbbbbbbb"], // 2 tokens
+		]);
+
+		const result = calculateCoveredCodeTokens(
+			["a.ts", "b.ts"],
+			fileContents,
+			{},
+		);
+
+		expect(result.fileDetails).toEqual([
+			{ path: "a.ts", tokens: 1, skipped: false, skipReason: undefined },
+			{ path: "b.ts", tokens: 2, skipped: false, skipReason: undefined },
+		]);
 	});
 });

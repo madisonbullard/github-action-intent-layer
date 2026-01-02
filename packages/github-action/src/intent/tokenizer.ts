@@ -168,3 +168,80 @@ export function countTokensWithOptions(
 		skipped: false,
 	};
 }
+
+/**
+ * Result of calculating token count for covered code files
+ */
+export interface CoveredCodeTokenResult {
+	/** Total tokens across all counted files */
+	totalTokens: number;
+	/** Number of files that were counted */
+	filesCounted: number;
+	/** Number of files that were skipped (binary or too large) */
+	filesSkipped: number;
+	/** Details for each file */
+	fileDetails: Array<{
+		/** File path */
+		path: string;
+		/** Token count (0 if skipped) */
+		tokens: number;
+		/** Whether the file was skipped */
+		skipped: boolean;
+		/** Reason for skipping, if applicable */
+		skipReason?: "binary" | "too_large";
+	}>;
+}
+
+/**
+ * Calculate token count for covered code files.
+ *
+ * Takes a list of file paths and a map of file contents, counts tokens
+ * for each file while respecting skip options for binary and large files.
+ *
+ * @param coveredFilePaths - Array of file paths covered by an intent node
+ * @param fileContents - Map of file path to file content
+ * @param options - Options for filtering binary/large files
+ * @returns Aggregate token count result with per-file details
+ */
+export function calculateCoveredCodeTokens(
+	coveredFilePaths: string[],
+	fileContents: Map<string, string>,
+	options: TokenCountOptions = {},
+): CoveredCodeTokenResult {
+	let totalTokens = 0;
+	let filesCounted = 0;
+	let filesSkipped = 0;
+	const fileDetails: CoveredCodeTokenResult["fileDetails"] = [];
+
+	for (const filePath of coveredFilePaths) {
+		const content = fileContents.get(filePath);
+
+		// If content not found, skip the file
+		if (content === undefined) {
+			continue;
+		}
+
+		const result = countTokensWithOptions(content, options);
+
+		if (result.skipped) {
+			filesSkipped++;
+		} else {
+			totalTokens += result.tokens;
+			filesCounted++;
+		}
+
+		fileDetails.push({
+			path: filePath,
+			tokens: result.tokens,
+			skipped: result.skipped,
+			skipReason: result.skipReason,
+		});
+	}
+
+	return {
+		totalTokens,
+		filesCounted,
+		filesSkipped,
+		fileDetails,
+	};
+}

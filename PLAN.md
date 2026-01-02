@@ -196,7 +196,7 @@ prompts:
 ### Phase 5: Token Budget & Analysis
 - [x] 5.1 Implement approximate token counter (simple heuristic, not model-specific)
 - [x] 5.2 Calculate "covered files" for each intent node (nearest parent, excludes `.intentlayerignore` files)
-- [ ] 5.3 Calculate token count of covered code per node
+- [x] 5.3 Calculate token count of covered code per node
 - [ ] 5.4 Calculate current token budget usage per node
 - [ ] 5.5 Identify nodes exceeding budget threshold
 - [ ] 5.6 Identify nodes that should be split
