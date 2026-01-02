@@ -189,7 +189,7 @@ prompts:
 - [x] 4.1 Detect existing `AGENTS.md` files in repo
 - [x] 4.2 Detect existing `CLAUDE.md` files in repo
 - [x] 4.3 Detect symlink relationships between files
-- [ ] 4.4 Build hierarchy tree of existing intent nodes
+- [x] 4.4 Build hierarchy tree of existing intent nodes
 - [ ] 4.5 Validate symlink config (error if conflict: both files exist, not symlinked, `symlink: true`)
 - [ ] 4.6 Write unit tests for detection logic
 
