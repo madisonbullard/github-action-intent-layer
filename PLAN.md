@@ -174,7 +174,7 @@ prompts:
 - [x] 2.2 Implement root `.intentlayerignore` parser (gitignore syntax)
 - [x] 2.3 Implement pattern-matched prompt resolver
 - [x] 2.4 Implement config validation and defaults
-- [ ] 2.5 Write unit tests for config parsing
+- [x] 2.5 Write unit tests for config parsing
 
 ### Phase 3: GitHub Context Extraction
 - [ ] 3.1 Create GitHub API client wrapper (uses repo's `GITHUB_TOKEN`)
