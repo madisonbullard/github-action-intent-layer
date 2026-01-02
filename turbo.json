@@ -1,0 +1,11 @@
+{
+	"tasks": {
+		"//#check": {},
+		"transit": {
+			"dependsOn": ["^transit"]
+		},
+		"typecheck": {
+			"dependsOn": ["transit"]
+		}
+	}
+}
