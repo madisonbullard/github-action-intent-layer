@@ -167,7 +167,7 @@ prompts:
 - [x] 1.5 Add package to root workspace
 - [x] 1.6 Create `action.yml` with all inputs defined
 - [x] 1.7 Set up esbuild for bundling
-- [ ] 1.8 Set up Vitest for testing
+- [x] 1.8 Set up testing (using Bun's built-in test runner)
 
 ### Phase 2: Configuration & Parsing
 - [ ] 2.1 Define Zod schema for all action inputs (including `mode`)
