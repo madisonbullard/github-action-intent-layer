@@ -6,7 +6,7 @@
 
 The action runs on PRs (open, sync, edit), analyzes code changes, and suggests updates to intent nodes via PR comments with approval checkboxes. It follows the "Ralph Driven Development" methodology: plan thoroughly, execute in loops, capture learnings.
 
-**Prerequisites**: User must provide an LLM API key (e.g., `ANTHROPIC_API_KEY`) as a repository secret.
+**Prerequisites**: User must provide an LLM API key (`ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`) as a repository secret.
 
 ### References
 
@@ -376,7 +376,8 @@ New nodes are always proposed in `output: pr_comments` (created only when approv
 
 ### 12. Authentication
 - **GitHub API**: Uses repository's `GITHUB_TOKEN` (standard Actions token)
-- **LLM/OpenCode**: User provides API key as secret (e.g., `ANTHROPIC_API_KEY`) — only required for `mode: analyze`, not for `mode: checkbox-handler`
+- **LLM/OpenCode**: User provides API key as secret (`ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`) — only required for `mode: analyze`, not for `mode: checkbox-handler`
+- OpenRouter allows access to multiple model providers through a single API key
 
 ### 13. OpenCode Integration
 - Uses `@opencode-ai/sdk` for programmatic session control
@@ -491,6 +492,32 @@ jobs:
           file_max_lines: 8000
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Main Intent Layer Workflow with OpenRouter (for consuming repos)
+```yaml
+name: intent-layer
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+
+jobs:
+  update-intent-layer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: your-org/github-action-intent-layer@v1
+        with:
+          mode: analyze
+          output: pr_comments
+          model: openrouter/anthropic/claude-sonnet-4-20250514
+          files: agents
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
 ### Checkbox Handler Workflow (for consuming repos)
