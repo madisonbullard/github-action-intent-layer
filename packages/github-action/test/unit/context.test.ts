@@ -5,12 +5,16 @@ import {
 	extractLinkedIssuesFromContext,
 	extractPRCommits,
 	extractPRCommitsFromContext,
+	extractPRDiff,
+	extractPRDiffFromContext,
 	extractPRMetadata,
 	extractPRMetadataFromContext,
 	extractPRReviewComments,
 	extractPRReviewCommentsFromContext,
 	type LinkedIssue,
+	type PRChangedFile,
 	type PRCommit,
+	type PRDiff,
 	type PRMetadata,
 	type PRReviewComment,
 	parseLinkedIssues,
@@ -1438,6 +1442,390 @@ describe("PRReviewComment type structure", () => {
 
 		for (const field of expectedFields) {
 			expect(comment).toHaveProperty(field);
+		}
+	});
+});
+
+// ============================================================================
+// PR Diff / Files Changed Tests
+// ============================================================================
+
+/**
+ * Sample file data matching GitHub API response structure
+ */
+const sampleFilesData = [
+	{
+		sha: "bbcd538c8e72b8c175046e27cc8f907076331401",
+		filename: "src/index.ts",
+		status: "added",
+		additions: 103,
+		deletions: 0,
+		changes: 103,
+		blob_url:
+			"https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/index.ts",
+		raw_url:
+			"https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/index.ts",
+		contents_url:
+			"https://api.github.com/repos/octocat/Hello-World/contents/src/index.ts?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		patch:
+			"@@ -0,0 +1,103 @@ export function main() {\n+  console.log('Hello World');\n+}",
+	},
+	{
+		sha: "abc123def456",
+		filename: "README.md",
+		status: "modified",
+		additions: 10,
+		deletions: 5,
+		changes: 15,
+		blob_url:
+			"https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/README.md",
+		raw_url:
+			"https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/README.md",
+		contents_url:
+			"https://api.github.com/repos/octocat/Hello-World/contents/README.md?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		patch: "@@ -1,5 +1,10 @@ # Hello World\n+\n+This is a test project.",
+	},
+	{
+		sha: "def789ghi012",
+		filename: "old-file.ts",
+		status: "removed",
+		additions: 0,
+		deletions: 50,
+		changes: 50,
+		blob_url:
+			"https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/old-file.ts",
+		raw_url:
+			"https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/old-file.ts",
+		contents_url:
+			"https://api.github.com/repos/octocat/Hello-World/contents/old-file.ts?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		patch: "@@ -1,50 +0,0 @@ // Old code removed",
+	},
+	{
+		sha: "ghi345jkl678",
+		filename: "src/utils/helper.ts",
+		status: "renamed",
+		additions: 2,
+		deletions: 1,
+		changes: 3,
+		blob_url:
+			"https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/utils/helper.ts",
+		raw_url:
+			"https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/utils/helper.ts",
+		contents_url:
+			"https://api.github.com/repos/octocat/Hello-World/contents/src/utils/helper.ts?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		patch:
+			"@@ -1,1 +1,2 @@ export const helper = () => {};\n+export const helper2 = () => {};",
+		previous_filename: "src/helper.ts",
+	},
+];
+
+/**
+ * Creates a mock GitHub client for diff tests
+ */
+function createMockDiffClient(
+	filesData: typeof sampleFilesData,
+	rawDiff = "",
+	pullRequestNumber?: number,
+): GitHubClient {
+	return {
+		getPullRequestFiles: mock(() => Promise.resolve(filesData)),
+		getPullRequestDiff: mock(() => Promise.resolve(rawDiff)),
+		pullRequestNumber,
+	} as unknown as GitHubClient;
+}
+
+describe("extractPRDiff", () => {
+	test("extracts all files from PR", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files).toHaveLength(4);
+	});
+
+	test("extracts file SHA correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.sha).toBe("bbcd538c8e72b8c175046e27cc8f907076331401");
+	});
+
+	test("extracts filename correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.filename).toBe("src/index.ts");
+		expect(diff.files[1]!.filename).toBe("README.md");
+		expect(diff.files[2]!.filename).toBe("old-file.ts");
+	});
+
+	test("extracts file status correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.status).toBe("added");
+		expect(diff.files[1]!.status).toBe("modified");
+		expect(diff.files[2]!.status).toBe("removed");
+		expect(diff.files[3]!.status).toBe("renamed");
+	});
+
+	test("extracts additions and deletions correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.additions).toBe(103);
+		expect(diff.files[0]!.deletions).toBe(0);
+		expect(diff.files[0]!.changes).toBe(103);
+
+		expect(diff.files[1]!.additions).toBe(10);
+		expect(diff.files[1]!.deletions).toBe(5);
+		expect(diff.files[1]!.changes).toBe(15);
+	});
+
+	test("extracts URLs correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.blobUrl).toBe(
+			"https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/index.ts",
+		);
+		expect(diff.files[0]!.rawUrl).toBe(
+			"https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/index.ts",
+		);
+		expect(diff.files[0]!.contentsUrl).toBe(
+			"https://api.github.com/repos/octocat/Hello-World/contents/src/index.ts?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		);
+	});
+
+	test("extracts patch correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.patch).toBe(
+			"@@ -0,0 +1,103 @@ export function main() {\n+  console.log('Hello World');\n+}",
+		);
+	});
+
+	test("extracts previous filename for renamed files", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[3]!.previousFilename).toBe("src/helper.ts");
+		expect(diff.files[0]!.previousFilename).toBeNull();
+	});
+
+	test("calculates summary statistics correctly", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.summary.totalFiles).toBe(4);
+		expect(diff.summary.totalAdditions).toBe(103 + 10 + 0 + 2);
+		expect(diff.summary.totalDeletions).toBe(0 + 5 + 50 + 1);
+		expect(diff.summary.filesAdded).toBe(1);
+		expect(diff.summary.filesRemoved).toBe(1);
+		expect(diff.summary.filesModified).toBe(1);
+		expect(diff.summary.filesRenamed).toBe(1);
+	});
+
+	test("handles empty files list", async () => {
+		const client = createMockDiffClient([]);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files).toEqual([]);
+		expect(diff.summary.totalFiles).toBe(0);
+		expect(diff.summary.totalAdditions).toBe(0);
+		expect(diff.summary.totalDeletions).toBe(0);
+		expect(diff.summary.filesAdded).toBe(0);
+		expect(diff.summary.filesRemoved).toBe(0);
+		expect(diff.summary.filesModified).toBe(0);
+		expect(diff.summary.filesRenamed).toBe(0);
+	});
+
+	test("handles missing patch (binary files)", async () => {
+		const binaryFileData = [
+			{
+				sha: "abc123",
+				filename: "image.png",
+				status: "added",
+				additions: 0,
+				deletions: 0,
+				changes: 0,
+				blob_url:
+					"https://github.com/octocat/Hello-World/blob/abc123/image.png",
+				raw_url: "https://github.com/octocat/Hello-World/raw/abc123/image.png",
+				contents_url:
+					"https://api.github.com/repos/octocat/Hello-World/contents/image.png?ref=abc123",
+				// No patch field for binary files
+			},
+		];
+		const client = createMockDiffClient(
+			binaryFileData as unknown as typeof sampleFilesData,
+		);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.files[0]!.patch).toBeNull();
+	});
+
+	test("handles missing previous_filename for non-renamed files", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		// First 3 files are not renamed
+		expect(diff.files[0]!.previousFilename).toBeNull();
+		expect(diff.files[1]!.previousFilename).toBeNull();
+		expect(diff.files[2]!.previousFilename).toBeNull();
+	});
+
+	test("does not fetch raw diff by default", async () => {
+		const mockGetDiff = mock(() => Promise.resolve("diff content"));
+		const client = {
+			getPullRequestFiles: mock(() => Promise.resolve(sampleFilesData)),
+			getPullRequestDiff: mockGetDiff,
+		} as unknown as GitHubClient;
+
+		const diff = await extractPRDiff(client, 42);
+
+		expect(mockGetDiff).not.toHaveBeenCalled();
+		expect(diff.rawDiff).toBeNull();
+	});
+
+	test("fetches raw diff when includeRawDiff is true", async () => {
+		const rawDiffContent =
+			"diff --git a/file1.txt b/file1.txt\n--- a/file1.txt\n+++ b/file1.txt";
+		const client = createMockDiffClient(sampleFilesData, rawDiffContent);
+
+		const diff = await extractPRDiff(client, 42, { includeRawDiff: true });
+
+		expect(diff.rawDiff).toBe(rawDiffContent);
+	});
+
+	test("calls getPullRequestFiles with correct pull number", async () => {
+		const mockGetFiles = mock(() => Promise.resolve(sampleFilesData));
+		const client = {
+			getPullRequestFiles: mockGetFiles,
+			getPullRequestDiff: mock(() => Promise.resolve("")),
+		} as unknown as GitHubClient;
+
+		await extractPRDiff(client, 99);
+
+		expect(mockGetFiles).toHaveBeenCalledWith(99);
+	});
+
+	test("counts changed status as modified", async () => {
+		const changedFileData = [
+			{
+				sha: "abc123",
+				filename: "file.ts",
+				status: "changed",
+				additions: 5,
+				deletions: 3,
+				changes: 8,
+				blob_url: "https://github.com/octocat/Hello-World/blob/abc123/file.ts",
+				raw_url: "https://github.com/octocat/Hello-World/raw/abc123/file.ts",
+				contents_url:
+					"https://api.github.com/repos/octocat/Hello-World/contents/file.ts?ref=abc123",
+				patch: "@@ -1,3 +1,5 @@",
+			},
+		];
+		const client = createMockDiffClient(changedFileData);
+		const diff = await extractPRDiff(client, 42);
+
+		expect(diff.summary.filesModified).toBe(1);
+	});
+});
+
+describe("extractPRDiffFromContext", () => {
+	test("returns diff when in PR context", async () => {
+		const client = createMockDiffClient(sampleFilesData, "", 42);
+		const diff = await extractPRDiffFromContext(client);
+
+		expect(diff).not.toBeNull();
+		expect(diff?.files).toHaveLength(4);
+	});
+
+	test("returns null when not in PR context", async () => {
+		const client = createMockDiffClient(sampleFilesData, "", undefined);
+		const diff = await extractPRDiffFromContext(client);
+
+		expect(diff).toBeNull();
+	});
+
+	test("uses pullRequestNumber from context", async () => {
+		const mockGetFiles = mock(() => Promise.resolve(sampleFilesData));
+		const client = {
+			getPullRequestFiles: mockGetFiles,
+			getPullRequestDiff: mock(() => Promise.resolve("")),
+			pullRequestNumber: 123,
+		} as unknown as GitHubClient;
+
+		await extractPRDiffFromContext(client);
+
+		expect(mockGetFiles).toHaveBeenCalledWith(123);
+	});
+
+	test("passes options through to extractPRDiff", async () => {
+		const rawDiffContent = "diff content";
+		const client = createMockDiffClient(sampleFilesData, rawDiffContent, 42);
+
+		const diff = await extractPRDiffFromContext(client, {
+			includeRawDiff: true,
+		});
+
+		expect(diff?.rawDiff).toBe(rawDiffContent);
+	});
+});
+
+describe("PRDiff type structure", () => {
+	test("diff has all expected top-level fields", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		const expectedFields: (keyof PRDiff)[] = ["files", "summary", "rawDiff"];
+
+		for (const field of expectedFields) {
+			expect(diff).toHaveProperty(field);
+		}
+	});
+
+	test("changed file has all expected fields", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+		const file = diff.files[0]!;
+
+		const expectedFields: (keyof PRChangedFile)[] = [
+			"sha",
+			"filename",
+			"status",
+			"additions",
+			"deletions",
+			"changes",
+			"blobUrl",
+			"rawUrl",
+			"contentsUrl",
+			"patch",
+			"previousFilename",
+		];
+
+		for (const field of expectedFields) {
+			expect(file).toHaveProperty(field);
+		}
+	});
+
+	test("summary has all expected fields", async () => {
+		const client = createMockDiffClient(sampleFilesData);
+		const diff = await extractPRDiff(client, 42);
+
+		const expectedFields = [
+			"totalFiles",
+			"totalAdditions",
+			"totalDeletions",
+			"filesAdded",
+			"filesRemoved",
+			"filesModified",
+			"filesRenamed",
+		];
+
+		for (const field of expectedFields) {
+			expect(diff.summary).toHaveProperty(field);
 		}
 	});
 });

@@ -519,3 +519,164 @@ export async function extractPRReviewCommentsFromContext(
 	}
 	return extractPRReviewComments(client, pullNumber);
 }
+
+// ============================================================================
+// PR Diff / Files Changed
+// ============================================================================
+
+/**
+ * Status of a file change in a pull request
+ */
+export type PRFileStatus =
+	| "added"
+	| "removed"
+	| "modified"
+	| "renamed"
+	| "copied"
+	| "changed"
+	| "unchanged";
+
+/**
+ * Represents a file changed in a pull request
+ */
+export interface PRChangedFile {
+	/** SHA of the file blob */
+	sha: string;
+	/** Path to the file */
+	filename: string;
+	/** Status of the change */
+	status: PRFileStatus;
+	/** Number of lines added */
+	additions: number;
+	/** Number of lines deleted */
+	deletions: number;
+	/** Total number of changes (additions + deletions) */
+	changes: number;
+	/** URL to view the blob on GitHub */
+	blobUrl: string;
+	/** URL to get the raw file content */
+	rawUrl: string;
+	/** API URL to get file contents */
+	contentsUrl: string;
+	/** The patch/diff for this file (may be null for binary or very large files) */
+	patch: string | null;
+	/** Previous filename if the file was renamed */
+	previousFilename: string | null;
+}
+
+/**
+ * Summary statistics for a pull request diff
+ */
+export interface PRDiffSummary {
+	/** Total number of files changed */
+	totalFiles: number;
+	/** Total lines added across all files */
+	totalAdditions: number;
+	/** Total lines deleted across all files */
+	totalDeletions: number;
+	/** Number of files added */
+	filesAdded: number;
+	/** Number of files removed */
+	filesRemoved: number;
+	/** Number of files modified */
+	filesModified: number;
+	/** Number of files renamed */
+	filesRenamed: number;
+}
+
+/**
+ * Complete diff information for a pull request
+ */
+export interface PRDiff {
+	/** List of all changed files with their details */
+	files: PRChangedFile[];
+	/** Summary statistics */
+	summary: PRDiffSummary;
+	/** Raw unified diff string (if requested) */
+	rawDiff: string | null;
+}
+
+/**
+ * Options for extracting PR diff
+ */
+export interface ExtractPRDiffOptions {
+	/** Whether to include the raw unified diff string (default: false) */
+	includeRawDiff?: boolean;
+}
+
+/**
+ * Extract diff information from a pull request
+ *
+ * @param client - GitHub API client
+ * @param pullNumber - PR number to fetch diff for
+ * @param options - Options for extraction
+ * @returns PR diff object with files and summary
+ */
+export async function extractPRDiff(
+	client: GitHubClient,
+	pullNumber: number,
+	options: ExtractPRDiffOptions = {},
+): Promise<PRDiff> {
+	const { includeRawDiff = false } = options;
+
+	// Fetch files changed in the PR
+	const filesData = await client.getPullRequestFiles(pullNumber);
+
+	// Map API response to our interface
+	const files: PRChangedFile[] = filesData.map((file) => ({
+		sha: file.sha,
+		filename: file.filename,
+		status: file.status as PRFileStatus,
+		additions: file.additions,
+		deletions: file.deletions,
+		changes: file.changes,
+		blobUrl: file.blob_url,
+		rawUrl: file.raw_url,
+		contentsUrl: file.contents_url,
+		patch: file.patch ?? null,
+		previousFilename: file.previous_filename ?? null,
+	}));
+
+	// Calculate summary statistics
+	const summary: PRDiffSummary = {
+		totalFiles: files.length,
+		totalAdditions: files.reduce((sum, f) => sum + f.additions, 0),
+		totalDeletions: files.reduce((sum, f) => sum + f.deletions, 0),
+		filesAdded: files.filter((f) => f.status === "added").length,
+		filesRemoved: files.filter((f) => f.status === "removed").length,
+		filesModified: files.filter(
+			(f) => f.status === "modified" || f.status === "changed",
+		).length,
+		filesRenamed: files.filter((f) => f.status === "renamed").length,
+	};
+
+	// Optionally fetch raw diff
+	let rawDiff: string | null = null;
+	if (includeRawDiff) {
+		rawDiff = await client.getPullRequestDiff(pullNumber);
+	}
+
+	return {
+		files,
+		summary,
+		rawDiff,
+	};
+}
+
+/**
+ * Extract diff from the current PR context
+ *
+ * @param client - GitHub API client
+ * @param options - Options for extraction
+ * @returns PR diff or null if not in a PR context
+ */
+export async function extractPRDiffFromContext(
+	client: GitHubClient,
+	options: ExtractPRDiffOptions = {},
+): Promise<PRDiff | null> {
+	const pullNumber = client.pullRequestNumber;
+	if (!pullNumber) {
+		return null;
+	}
+	return extractPRDiff(client, pullNumber, options);
+}
