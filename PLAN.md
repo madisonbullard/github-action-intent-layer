@@ -164,8 +164,8 @@ prompts:
 - [x] 1.2 Initialize Bun package (`bun init`)
 - [x] 1.3 Configure TypeScript (ESM, strict mode)
 - [ ] 1.4 Configure ESLint, Prettier (extend root config)
-- [ ] 1.5 Add package to root workspace
-- [ ] 1.6 Create `action.yml` with all inputs defined
+- [x] 1.5 Add package to root workspace
+- [x] 1.6 Create `action.yml` with all inputs defined
 - [ ] 1.7 Set up esbuild for bundling
 - [ ] 1.8 Set up Vitest for testing
 

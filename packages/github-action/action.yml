@@ -1,0 +1,72 @@
+name: 'Intent Layer'
+description: 'Automatically maintain AI agent context files (AGENTS.md/CLAUDE.md) based on PR changes'
+author: 'madisonbullard'
+
+branding:
+  icon: 'layers'
+  color: 'purple'
+
+inputs:
+  mode:
+    description: 'Operation mode: analyze | checkbox-handler'
+    required: false
+    default: 'analyze'
+
+  model:
+    description: 'Model to use (provider/model format)'
+    required: false
+    default: 'anthropic/claude-sonnet-4-20250514'
+
+  files:
+    description: 'Which files to manage: agents | claude | both'
+    required: false
+    default: 'agents'
+
+  symlink:
+    description: 'Create symlinks between AGENTS.md and CLAUDE.md: true | false'
+    required: false
+    default: 'false'
+
+  symlink_source:
+    description: 'Which file is source of truth when symlinking: agents | claude'
+    required: false
+    default: 'agents'
+
+  output:
+    description: 'Output mode: pr_comments | pr_commit | new_pr'
+    required: false
+    default: 'pr_comments'
+
+  new_nodes:
+    description: 'Allow new node creation: true | false'
+    required: false
+    default: 'true'
+
+  split_large_nodes:
+    description: 'Automatically suggest splitting large nodes'
+    required: false
+    default: 'true'
+
+  token_budget_percent:
+    description: 'Max token budget as percentage of covered code'
+    required: false
+    default: '5'
+
+  skip_binary_files:
+    description: 'Skip token counting for binary files: true | false'
+    required: false
+    default: 'true'
+
+  file_max_lines:
+    description: 'Skip token counting for files exceeding this many lines'
+    required: false
+    default: '8000'
+
+  prompts:
+    description: 'Pattern-matched custom prompts (YAML string)'
+    required: false
+    default: ''
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
