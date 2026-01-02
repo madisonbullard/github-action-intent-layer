@@ -9,6 +9,7 @@ import {
 	hasIntentLayer,
 	type IntentFile,
 	type IntentLayerDetectionResult,
+	validateSymlinkConfig,
 } from "../../src/intent/detector";
 
 /**
@@ -783,5 +784,269 @@ describe("detectSymlinkRelationships", () => {
 
 		expect(relationships).toHaveLength(3);
 		expect(relationships.map((r) => r.directory)).toEqual(["", "a", "z"]);
+	});
+});
+
+describe("validateSymlinkConfig", () => {
+	test("returns valid when symlink is disabled", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, false);
+
+		expect(validation.valid).toBe(true);
+		expect(validation.error).toBeUndefined();
+	});
+
+	test("returns valid when symlink enabled and only AGENTS.md exists", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+			],
+			claudeFiles: [],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("returns valid when symlink enabled and only CLAUDE.md exists", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha1", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("returns valid when symlink enabled and AGENTS.md is symlink to CLAUDE.md", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "sha1",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("returns valid when symlink enabled and CLAUDE.md is symlink to AGENTS.md", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+			],
+			claudeFiles: [
+				{
+					path: "CLAUDE.md",
+					type: "claude",
+					sha: "sha2",
+					isSymlink: true,
+					symlinkTarget: "AGENTS.md",
+				},
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("returns invalid when symlink enabled but both files exist without symlink", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(false);
+		expect(validation.error).toContain("Symlink configuration conflict");
+		expect(validation.error).toContain("(root)");
+		expect(validation.conflictDirectories).toEqual(["(root)"]);
+	});
+
+	test("returns invalid when symlink points to unrelated file", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "sha1",
+					isSymlink: true,
+					symlinkTarget: "README.md", // Points to unrelated file
+				},
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(false);
+		expect(validation.conflictDirectories).toEqual(["(root)"]);
+	});
+
+	test("returns invalid for conflict in nested directory", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "packages/api/AGENTS.md",
+					type: "agents",
+					sha: "sha1",
+					isSymlink: false,
+				},
+			],
+			claudeFiles: [
+				{
+					path: "packages/api/CLAUDE.md",
+					type: "claude",
+					sha: "sha2",
+					isSymlink: false,
+				},
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(false);
+		expect(validation.conflictDirectories).toEqual(["packages/api"]);
+	});
+
+	test("returns all conflict directories when multiple conflicts exist", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+				{
+					path: "src/AGENTS.md",
+					type: "agents",
+					sha: "sha2",
+					isSymlink: false,
+				},
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha3", isSymlink: false },
+				{
+					path: "src/CLAUDE.md",
+					type: "claude",
+					sha: "sha4",
+					isSymlink: false,
+				},
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(false);
+		expect(validation.conflictDirectories).toHaveLength(2);
+		expect(validation.conflictDirectories).toContain("(root)");
+		expect(validation.conflictDirectories).toContain("src");
+	});
+
+	test("returns valid when some directories are properly symlinked and some have only one file", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "sha1",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+				{
+					path: "src/AGENTS.md",
+					type: "agents",
+					sha: "sha2",
+					isSymlink: false,
+				}, // Only AGENTS.md in src/
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha3", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("handles symlink with ./ prefix", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "sha1",
+					isSymlink: true,
+					symlinkTarget: "./CLAUDE.md",
+				},
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("returns valid when no intent files exist", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [],
+			claudeFiles: [],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		expect(validation.valid).toBe(true);
+	});
+
+	test("handles symlink with unknown target gracefully", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "sha1",
+					isSymlink: true,
+					symlinkTarget: undefined, // Failed to read symlink target
+				},
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		const validation = validateSymlinkConfig(result, true);
+
+		// Should be treated as a conflict since we can't verify the symlink
+		expect(validation.valid).toBe(false);
+		expect(validation.conflictDirectories).toEqual(["(root)"]);
 	});
 });

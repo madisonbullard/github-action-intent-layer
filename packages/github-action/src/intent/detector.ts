@@ -295,6 +295,98 @@ function symlinkPointsToFile(
 	return false;
 }
 
+/** Result of symlink configuration validation */
+export interface SymlinkValidationResult {
+	/** Whether validation passed */
+	valid: boolean;
+	/** Error message if validation failed */
+	error?: string;
+	/** Directories where conflicts were found */
+	conflictDirectories?: string[];
+}
+
+/**
+ * Validate symlink configuration against the actual repository state.
+ *
+ * When `symlink: true` is configured, this function checks that intent files
+ * at the same directory level are properly symlinked. If both AGENTS.md and
+ * CLAUDE.md exist in a directory but neither is a symlink to the other,
+ * validation fails.
+ *
+ * @param result - Detection result from detectIntentLayer
+ * @param symlinkEnabled - Whether symlink: true is configured
+ * @returns Validation result with error details if failed
+ */
+export function validateSymlinkConfig(
+	result: IntentLayerDetectionResult,
+	symlinkEnabled: boolean,
+): SymlinkValidationResult {
+	// If symlink is disabled, validation always passes
+	if (!symlinkEnabled) {
+		return { valid: true };
+	}
+
+	// Build lookup maps by directory
+	const agentsByDir = new Map<string, IntentFile>();
+	const claudeByDir = new Map<string, IntentFile>();
+
+	for (const file of result.agentsFiles) {
+		agentsByDir.set(getDirectory(file.path), file);
+	}
+
+	for (const file of result.claudeFiles) {
+		claudeByDir.set(getDirectory(file.path), file);
+	}
+
+	// Find all directories that have both files
+	const conflictDirectories: string[] = [];
+
+	for (const dir of agentsByDir.keys()) {
+		const agentsFile = agentsByDir.get(dir);
+		const claudeFile = claudeByDir.get(dir);
+
+		// If only one exists, no conflict
+		if (!agentsFile || !claudeFile) {
+			continue;
+		}
+
+		// Both exist - check if at least one is a proper symlink to the other
+		const agentsPointsToClaude =
+			agentsFile.isSymlink &&
+			agentsFile.symlinkTarget &&
+			symlinkPointsToFile(
+				agentsFile.path,
+				agentsFile.symlinkTarget,
+				"CLAUDE.md",
+			);
+
+		const claudePointsToAgents =
+			claudeFile.isSymlink &&
+			claudeFile.symlinkTarget &&
+			symlinkPointsToFile(
+				claudeFile.path,
+				claudeFile.symlinkTarget,
+				"AGENTS.md",
+			);
+
+		// If neither is a symlink to the other, this is a conflict
+		if (!agentsPointsToClaude && !claudePointsToAgents) {
+			conflictDirectories.push(dir || "(root)");
+		}
+	}
+
+	if (conflictDirectories.length > 0) {
+		const dirList = conflictDirectories.join(", ");
+		return {
+			valid: false,
+			error: `Symlink configuration conflict: 'symlink: true' is set, but both AGENTS.md and CLAUDE.md exist as separate files (not symlinked) in: ${dirList}. Either remove one file, convert one to a symlink, or set 'symlink: false'.`,
+			conflictDirectories,
+		};
+	}
+
+	return { valid: true };
+}
+
 /**
  * Detect symlink relationships between AGENTS.md and CLAUDE.md files.
  *

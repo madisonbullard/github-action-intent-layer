@@ -190,8 +190,8 @@ prompts:
 - [x] 4.2 Detect existing `CLAUDE.md` files in repo
 - [x] 4.3 Detect symlink relationships between files
 - [x] 4.4 Build hierarchy tree of existing intent nodes
-- [ ] 4.5 Validate symlink config (error if conflict: both files exist, not symlinked, `symlink: true`)
-- [ ] 4.6 Write unit tests for detection logic
+- [x] 4.5 Validate symlink config (error if conflict: both files exist, not symlinked, `symlink: true`)
+- [x] 4.6 Write unit tests for detection logic
 
 ### Phase 5: Token Budget & Analysis
 - [ ] 5.1 Implement approximate token counter (simple heuristic, not model-specific)
