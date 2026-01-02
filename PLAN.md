@@ -166,7 +166,7 @@ prompts:
 - [ ] 1.4 Configure ESLint, Prettier (extend root config)
 - [x] 1.5 Add package to root workspace
 - [x] 1.6 Create `action.yml` with all inputs defined
-- [ ] 1.7 Set up esbuild for bundling
+- [x] 1.7 Set up esbuild for bundling
 - [ ] 1.8 Set up Vitest for testing
 
 ### Phase 2: Configuration & Parsing
