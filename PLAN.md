@@ -194,7 +194,7 @@ prompts:
 - [x] 4.6 Write unit tests for detection logic
 
 ### Phase 5: Token Budget & Analysis
-- [ ] 5.1 Implement approximate token counter (simple heuristic, not model-specific)
+- [x] 5.1 Implement approximate token counter (simple heuristic, not model-specific)
 - [ ] 5.2 Calculate "covered files" for each intent node (nearest parent, excludes `.intentlayerignore` files)
 - [ ] 5.3 Calculate token count of covered code per node
 - [ ] 5.4 Calculate current token budget usage per node
