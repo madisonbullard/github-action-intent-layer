@@ -15,6 +15,7 @@ The action runs on PRs (open, sync, edit), analyzes code changes, and suggests u
 - **OpenCode SDK**: https://opencode.ai/docs/sdk/
 - **OpenCode Custom Tools**: https://opencode.ai/docs/custom-tools/
 - **OpenCode Config**: https://opencode.ai/docs/config/
+- **OpenCode Github App source**: https://raw.githubusercontent.com/anomalyco/opencode/refs/heads/dev/github/index.ts
 
 ---
 
