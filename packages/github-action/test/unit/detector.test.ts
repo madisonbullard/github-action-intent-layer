@@ -4,6 +4,7 @@ import {
 	detectAgentsFiles,
 	detectClaudeFiles,
 	detectIntentLayer,
+	detectSymlinkRelationships,
 	getRootIntentFile,
 	hasIntentLayer,
 	type IntentFile,
@@ -443,5 +444,344 @@ describe("file sorting", () => {
 			"z/AGENTS.md", // depth 2, alphabetically last
 			"a/b/AGENTS.md", // depth 3
 		]);
+	});
+});
+
+describe("detectSymlinkRelationships", () => {
+	test("returns empty array when no intent files exist", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [],
+			claudeFiles: [],
+		};
+
+		expect(detectSymlinkRelationships(result)).toHaveLength(0);
+	});
+
+	test("returns empty array when only AGENTS.md files exist", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+			],
+			claudeFiles: [],
+		};
+
+		expect(detectSymlinkRelationships(result)).toHaveLength(0);
+	});
+
+	test("returns empty array when only CLAUDE.md files exist", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha1", isSymlink: false },
+			],
+		};
+
+		expect(detectSymlinkRelationships(result)).toHaveLength(0);
+	});
+
+	test("returns empty array when both files exist but neither is a symlink", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{ path: "AGENTS.md", type: "agents", sha: "sha1", isSymlink: false },
+			],
+			claudeFiles: [
+				{ path: "CLAUDE.md", type: "claude", sha: "sha2", isSymlink: false },
+			],
+		};
+
+		expect(detectSymlinkRelationships(result)).toHaveLength(0);
+	});
+
+	test("detects AGENTS.md -> CLAUDE.md symlink relationship", () => {
+		const claudeFile: IntentFile = {
+			path: "CLAUDE.md",
+			type: "claude",
+			sha: "claude-sha",
+			isSymlink: false,
+		};
+		const agentsFile: IntentFile = {
+			path: "AGENTS.md",
+			type: "agents",
+			sha: "agents-sha",
+			isSymlink: true,
+			symlinkTarget: "CLAUDE.md",
+		};
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [agentsFile],
+			claudeFiles: [claudeFile],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(1);
+		expect(relationships[0]).toEqual({
+			directory: "",
+			source: claudeFile,
+			symlink: agentsFile,
+			sourceType: "claude",
+		});
+	});
+
+	test("detects CLAUDE.md -> AGENTS.md symlink relationship", () => {
+		const agentsFile: IntentFile = {
+			path: "AGENTS.md",
+			type: "agents",
+			sha: "agents-sha",
+			isSymlink: false,
+		};
+		const claudeFile: IntentFile = {
+			path: "CLAUDE.md",
+			type: "claude",
+			sha: "claude-sha",
+			isSymlink: true,
+			symlinkTarget: "AGENTS.md",
+		};
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [agentsFile],
+			claudeFiles: [claudeFile],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(1);
+		expect(relationships[0]).toEqual({
+			directory: "",
+			source: agentsFile,
+			symlink: claudeFile,
+			sourceType: "agents",
+		});
+	});
+
+	test("detects symlink with ./ prefix in target", () => {
+		const agentsFile: IntentFile = {
+			path: "AGENTS.md",
+			type: "agents",
+			sha: "agents-sha",
+			isSymlink: false,
+		};
+		const claudeFile: IntentFile = {
+			path: "CLAUDE.md",
+			type: "claude",
+			sha: "claude-sha",
+			isSymlink: true,
+			symlinkTarget: "./AGENTS.md",
+		};
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [agentsFile],
+			claudeFiles: [claudeFile],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(1);
+		expect(relationships[0]!.sourceType).toBe("agents");
+	});
+
+	test("detects symlink relationships in nested directories", () => {
+		const agentsFile: IntentFile = {
+			path: "packages/api/AGENTS.md",
+			type: "agents",
+			sha: "agents-sha",
+			isSymlink: true,
+			symlinkTarget: "CLAUDE.md",
+		};
+		const claudeFile: IntentFile = {
+			path: "packages/api/CLAUDE.md",
+			type: "claude",
+			sha: "claude-sha",
+			isSymlink: false,
+		};
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [agentsFile],
+			claudeFiles: [claudeFile],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(1);
+		expect(relationships[0]).toEqual({
+			directory: "packages/api",
+			source: claudeFile,
+			symlink: agentsFile,
+			sourceType: "claude",
+		});
+	});
+
+	test("detects multiple symlink relationships at different levels", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "root-agents-sha",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+				{
+					path: "src/AGENTS.md",
+					type: "agents",
+					sha: "src-agents-sha",
+					isSymlink: false,
+				},
+			],
+			claudeFiles: [
+				{
+					path: "CLAUDE.md",
+					type: "claude",
+					sha: "root-claude-sha",
+					isSymlink: false,
+				},
+				{
+					path: "src/CLAUDE.md",
+					type: "claude",
+					sha: "src-claude-sha",
+					isSymlink: true,
+					symlinkTarget: "AGENTS.md",
+				},
+			],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(2);
+
+		// Root level: AGENTS.md -> CLAUDE.md
+		expect(relationships[0]!.directory).toBe("");
+		expect(relationships[0]!.sourceType).toBe("claude");
+
+		// src level: CLAUDE.md -> AGENTS.md
+		expect(relationships[1]!.directory).toBe("src");
+		expect(relationships[1]!.sourceType).toBe("agents");
+	});
+
+	test("ignores files in different directories", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "agents-sha",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+			],
+			claudeFiles: [
+				{
+					path: "src/CLAUDE.md",
+					type: "claude",
+					sha: "claude-sha",
+					isSymlink: false,
+				},
+			],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(0);
+	});
+
+	test("ignores symlink when target is unknown", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "agents-sha",
+					isSymlink: true,
+					symlinkTarget: undefined, // Failed to read symlink target
+				},
+			],
+			claudeFiles: [
+				{
+					path: "CLAUDE.md",
+					type: "claude",
+					sha: "claude-sha",
+					isSymlink: false,
+				},
+			],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(0);
+	});
+
+	test("ignores symlink pointing to unrelated file", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "agents-sha",
+					isSymlink: true,
+					symlinkTarget: "README.md", // Points to unrelated file
+				},
+			],
+			claudeFiles: [
+				{
+					path: "CLAUDE.md",
+					type: "claude",
+					sha: "claude-sha",
+					isSymlink: false,
+				},
+			],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(0);
+	});
+
+	test("sorts relationships with root directory first", () => {
+		const result: IntentLayerDetectionResult = {
+			agentsFiles: [
+				{
+					path: "z/AGENTS.md",
+					type: "agents",
+					sha: "z-sha",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+				{
+					path: "AGENTS.md",
+					type: "agents",
+					sha: "root-sha",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+				{
+					path: "a/AGENTS.md",
+					type: "agents",
+					sha: "a-sha",
+					isSymlink: true,
+					symlinkTarget: "CLAUDE.md",
+				},
+			],
+			claudeFiles: [
+				{
+					path: "z/CLAUDE.md",
+					type: "claude",
+					sha: "z-claude-sha",
+					isSymlink: false,
+				},
+				{
+					path: "CLAUDE.md",
+					type: "claude",
+					sha: "root-claude-sha",
+					isSymlink: false,
+				},
+				{
+					path: "a/CLAUDE.md",
+					type: "claude",
+					sha: "a-claude-sha",
+					isSymlink: false,
+				},
+			],
+		};
+
+		const relationships = detectSymlinkRelationships(result);
+
+		expect(relationships).toHaveLength(3);
+		expect(relationships.map((r) => r.directory)).toEqual(["", "a", "z"]);
 	});
 });

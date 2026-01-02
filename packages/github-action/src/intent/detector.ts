@@ -32,6 +32,18 @@ export interface IntentLayerDetectionResult {
 	claudeFiles: IntentFile[];
 }
 
+/** Represents a symlink relationship between an AGENTS.md and CLAUDE.md file at the same path */
+export interface SymlinkRelationship {
+	/** Directory path (empty string for root) */
+	directory: string;
+	/** The source file (the actual file with content) */
+	source: IntentFile;
+	/** The symlink file (points to source) */
+	symlink: IntentFile;
+	/** Which file type is the source: 'agents' or 'claude' */
+	sourceType: IntentFileType;
+}
+
 /** File names for intent layer files */
 const AGENTS_FILENAME = "AGENTS.md";
 const CLAUDE_FILENAME = "CLAUDE.md";
@@ -213,4 +225,160 @@ export function hasIntentLayer(result: IntentLayerDetectionResult): boolean {
  */
 export function getRootIntentFile(files: IntentFile[]): IntentFile | undefined {
 	return files.find((f) => !f.path.includes("/"));
+}
+
+/**
+ * Get the directory of an intent file path.
+ *
+ * @param path - File path
+ * @returns Directory path (empty string for root files)
+ */
+function getDirectory(path: string): string {
+	const lastSlash = path.lastIndexOf("/");
+	return lastSlash === -1 ? "" : path.substring(0, lastSlash);
+}
+
+/**
+ * Get the filename from a path.
+ *
+ * @param path - File path
+ * @returns Filename
+ */
+function getFilename(path: string): string {
+	const lastSlash = path.lastIndexOf("/");
+	return lastSlash === -1 ? path : path.substring(lastSlash + 1);
+}
+
+/**
+ * Check if a symlink target matches a file in the same directory.
+ *
+ * @param symlinkPath - Path of the symlink file
+ * @param symlinkTarget - Target of the symlink (relative or absolute)
+ * @param targetFilename - Expected filename of the target (e.g., "AGENTS.md" or "CLAUDE.md")
+ * @returns True if the symlink points to the target file in the same directory
+ */
+function symlinkPointsToFile(
+	symlinkPath: string,
+	symlinkTarget: string,
+	targetFilename: string,
+): boolean {
+	// Handle simple case: symlink target is just the filename
+	if (symlinkTarget === targetFilename) {
+		return true;
+	}
+
+	// Handle relative path: ./FILENAME
+	if (symlinkTarget === `./${targetFilename}`) {
+		return true;
+	}
+
+	// Handle case where symlink target includes directory path
+	const symlinkDir = getDirectory(symlinkPath);
+	const targetDir = getDirectory(symlinkTarget);
+	const targetFile = getFilename(symlinkTarget);
+
+	// If target filename matches and directories align
+	if (targetFile === targetFilename) {
+		// Same directory reference
+		if (targetDir === "" || targetDir === ".") {
+			return true;
+		}
+		// Full path matches
+		if (
+			symlinkDir === targetDir ||
+			`${symlinkDir}/${targetFilename}` === symlinkTarget
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Detect symlink relationships between AGENTS.md and CLAUDE.md files.
+ *
+ * Finds pairs of files at the same directory level where one is a symlink
+ * pointing to the other. This helps identify the source of truth for each
+ * intent layer location.
+ *
+ * @param result - Detection result from detectIntentLayer
+ * @returns Array of symlink relationships found
+ */
+export function detectSymlinkRelationships(
+	result: IntentLayerDetectionResult,
+): SymlinkRelationship[] {
+	const relationships: SymlinkRelationship[] = [];
+
+	// Build lookup maps by directory
+	const agentsByDir = new Map<string, IntentFile>();
+	const claudeByDir = new Map<string, IntentFile>();
+
+	for (const file of result.agentsFiles) {
+		agentsByDir.set(getDirectory(file.path), file);
+	}
+
+	for (const file of result.claudeFiles) {
+		claudeByDir.set(getDirectory(file.path), file);
+	}
+
+	// Check for relationships in each directory that has both files
+	const allDirs = new Set([...agentsByDir.keys(), ...claudeByDir.keys()]);
+
+	for (const dir of allDirs) {
+		const agentsFile = agentsByDir.get(dir);
+		const claudeFile = claudeByDir.get(dir);
+
+		// Both files must exist in the same directory
+		if (!agentsFile || !claudeFile) {
+			continue;
+		}
+
+		// Check if AGENTS.md is a symlink pointing to CLAUDE.md
+		if (
+			agentsFile.isSymlink &&
+			agentsFile.symlinkTarget &&
+			symlinkPointsToFile(
+				agentsFile.path,
+				agentsFile.symlinkTarget,
+				CLAUDE_FILENAME,
+			)
+		) {
+			relationships.push({
+				directory: dir,
+				source: claudeFile,
+				symlink: agentsFile,
+				sourceType: "claude",
+			});
+			continue;
+		}
+
+		// Check if CLAUDE.md is a symlink pointing to AGENTS.md
+		if (
+			claudeFile.isSymlink &&
+			claudeFile.symlinkTarget &&
+			symlinkPointsToFile(
+				claudeFile.path,
+				claudeFile.symlinkTarget,
+				AGENTS_FILENAME,
+			)
+		) {
+			relationships.push({
+				directory: dir,
+				source: agentsFile,
+				symlink: claudeFile,
+				sourceType: "agents",
+			});
+		}
+	}
+
+	// Sort by directory for consistent ordering
+	relationships.sort((a, b) => {
+		// Root directory (empty string) first
+		if (a.directory === "" && b.directory !== "") return -1;
+		if (a.directory !== "" && b.directory === "") return 1;
+		return a.directory.localeCompare(b.directory);
+	});
+
+	return relationships;
 }
