@@ -186,7 +186,7 @@ prompts:
 - [x] 3.7 Write unit tests with mocked GitHub API responses
 
 ### Phase 4: Intent Layer Detection
-- [ ] 4.1 Detect existing `AGENTS.md` files in repo
+- [x] 4.1 Detect existing `AGENTS.md` files in repo
 - [ ] 4.2 Detect existing `CLAUDE.md` files in repo
 - [ ] 4.3 Detect symlink relationships between files
 - [ ] 4.4 Build hierarchy tree of existing intent nodes
