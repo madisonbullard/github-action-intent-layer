@@ -162,7 +162,7 @@ prompts:
 ### Phase 1: Project Setup
 - [x] 1.1 Create `packages/github-action/` directory
 - [x] 1.2 Initialize Bun package (`bun init`)
-- [ ] 1.3 Configure TypeScript (ESM, strict mode)
+- [x] 1.3 Configure TypeScript (ESM, strict mode)
 - [ ] 1.4 Configure ESLint, Prettier (extend root config)
 - [ ] 1.5 Add package to root workspace
 - [ ] 1.6 Create `action.yml` with all inputs defined
