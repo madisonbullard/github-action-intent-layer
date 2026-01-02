@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULTS } from "./defaults";
 
 /**
  * Operation mode for the action:
@@ -98,37 +99,37 @@ const promptsFromInput = z
  */
 export const ActionInputsSchema = z.object({
 	/** Operation mode */
-	mode: ModeSchema.default("analyze"),
+	mode: ModeSchema.default(DEFAULTS.mode),
 
 	/** Model to use (provider/model format) */
-	model: z.string().default("anthropic/claude-sonnet-4-20250514"),
+	model: z.string().default(DEFAULTS.model),
 
 	/** Which files to manage */
-	files: FilesSchema.default("agents"),
+	files: FilesSchema.default(DEFAULTS.files),
 
 	/** Create symlinks between AGENTS.md and CLAUDE.md */
-	symlink: booleanFromString.default(false),
+	symlink: booleanFromString.default(DEFAULTS.symlink),
 
 	/** Which file is source of truth when symlinking */
-	symlink_source: SymlinkSourceSchema.default("agents"),
+	symlink_source: SymlinkSourceSchema.default(DEFAULTS.symlinkSource),
 
 	/** Output mode for analyze results */
-	output: OutputSchema.default("pr_comments"),
+	output: OutputSchema.default(DEFAULTS.output),
 
 	/** Allow new node creation */
-	new_nodes: booleanFromString.default(true),
+	new_nodes: booleanFromString.default(DEFAULTS.newNodes),
 
 	/** Automatically suggest splitting large nodes */
-	split_large_nodes: booleanFromString.default(true),
+	split_large_nodes: booleanFromString.default(DEFAULTS.splitLargeNodes),
 
 	/** Max token budget as percentage of covered code */
-	token_budget_percent: numberFromString.default(5),
+	token_budget_percent: numberFromString.default(DEFAULTS.tokenBudgetPercent),
 
 	/** Skip token counting for binary files */
-	skip_binary_files: booleanFromString.default(true),
+	skip_binary_files: booleanFromString.default(DEFAULTS.skipBinaryFiles),
 
 	/** Skip token counting for files exceeding this many lines */
-	file_max_lines: numberFromString.default(8000),
+	file_max_lines: numberFromString.default(DEFAULTS.fileMaxLines),
 
 	/** Pattern-matched custom prompts (YAML string or parsed array) */
 	prompts: promptsFromInput.optional(),
