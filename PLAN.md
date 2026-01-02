@@ -170,7 +170,7 @@ prompts:
 - [x] 1.8 Set up testing (using Bun's built-in test runner)
 
 ### Phase 2: Configuration & Parsing
-- [ ] 2.1 Define Zod schema for all action inputs (including `mode`)
+- [x] 2.1 Define Zod schema for all action inputs (including `mode`)
 - [ ] 2.2 Implement root `.intentlayerignore` parser (gitignore syntax)
 - [ ] 2.3 Implement pattern-matched prompt resolver
 - [ ] 2.4 Implement config validation and defaults
