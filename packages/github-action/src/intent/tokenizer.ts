@@ -245,3 +245,138 @@ export function calculateCoveredCodeTokens(
 		fileDetails,
 	};
 }
+
+/**
+ * Result of calculating token budget usage for a single intent node.
+ */
+export interface NodeTokenBudgetResult {
+	/** Path to the intent node file */
+	nodePath: string;
+	/** Approximate token count of the intent node content */
+	nodeTokens: number;
+	/** Approximate token count of all covered code */
+	coveredCodeTokens: number;
+	/** Current budget usage as a percentage (0-100+) */
+	budgetPercent: number;
+	/** Whether the node exceeds the specified budget threshold */
+	exceedsBudget: boolean;
+	/** Number of files counted in coverage calculation */
+	filesCounted: number;
+	/** Number of files skipped (binary or too large) */
+	filesSkipped: number;
+}
+
+/**
+ * Calculate token budget usage for a specific intent node.
+ *
+ * Combines the covered files result from hierarchy with file contents
+ * to calculate complete token budget metrics for a node.
+ *
+ * @param nodePath - Path to the intent node file
+ * @param nodeContent - Content of the intent node (AGENTS.md or CLAUDE.md)
+ * @param coveredFilePaths - Array of file paths covered by this node
+ * @param fileContents - Map of file path to file content
+ * @param budgetThresholdPercent - Maximum allowed budget percentage (default 5%)
+ * @param options - Options for filtering binary/large files
+ * @returns Complete token budget calculation for the node
+ */
+export function calculateNodeTokenBudget(
+	nodePath: string,
+	nodeContent: string,
+	coveredFilePaths: string[],
+	fileContents: Map<string, string>,
+	budgetThresholdPercent = 5,
+	options: TokenCountOptions = {},
+): NodeTokenBudgetResult {
+	// Calculate covered code tokens with skip options
+	const coveredResult = calculateCoveredCodeTokens(
+		coveredFilePaths,
+		fileContents,
+		options,
+	);
+
+	// Calculate node tokens
+	const nodeTokens = countTokens(nodeContent);
+
+	// Calculate budget percentage
+	const budgetPercent =
+		coveredResult.totalTokens > 0
+			? (nodeTokens / coveredResult.totalTokens) * 100
+			: 0;
+
+	return {
+		nodePath,
+		nodeTokens,
+		coveredCodeTokens: coveredResult.totalTokens,
+		budgetPercent,
+		exceedsBudget: budgetPercent > budgetThresholdPercent,
+		filesCounted: coveredResult.filesCounted,
+		filesSkipped: coveredResult.filesSkipped,
+	};
+}
+
+/**
+ * Result of calculating token budget usage for all nodes in a hierarchy.
+ */
+export interface HierarchyTokenBudgetResult {
+	/** Token budget results for each node, keyed by node path */
+	nodeResults: Map<string, NodeTokenBudgetResult>;
+	/** Nodes that exceed the budget threshold */
+	nodesExceedingBudget: NodeTokenBudgetResult[];
+	/** Total nodes analyzed */
+	totalNodes: number;
+	/** Count of nodes exceeding budget */
+	exceedingCount: number;
+}
+
+/**
+ * Calculate token budget usage for all nodes in a hierarchy.
+ *
+ * @param coveredFilesMap - Map of node path to covered files (from getCoveredFilesForHierarchy)
+ * @param nodeContents - Map of node path to node content
+ * @param fileContents - Map of all file paths to their contents
+ * @param budgetThresholdPercent - Maximum allowed budget percentage (default 5%)
+ * @param options - Options for filtering binary/large files
+ * @returns Complete token budget analysis for all nodes
+ */
+export function calculateHierarchyTokenBudget(
+	coveredFilesMap: Map<string, { coveredFiles: string[] }>,
+	nodeContents: Map<string, string>,
+	fileContents: Map<string, string>,
+	budgetThresholdPercent = 5,
+	options: TokenCountOptions = {},
+): HierarchyTokenBudgetResult {
+	const nodeResults = new Map<string, NodeTokenBudgetResult>();
+	const nodesExceedingBudget: NodeTokenBudgetResult[] = [];
+
+	for (const [nodePath, { coveredFiles }] of coveredFilesMap) {
+		const nodeContent = nodeContents.get(nodePath);
+
+		// Skip if node content not found
+		if (nodeContent === undefined) {
+			continue;
+		}
+
+		const result = calculateNodeTokenBudget(
+			nodePath,
+			nodeContent,
+			coveredFiles,
+			fileContents,
+			budgetThresholdPercent,
+			options,
+		);
+
+		nodeResults.set(nodePath, result);
+
+		if (result.exceedsBudget) {
+			nodesExceedingBudget.push(result);
+		}
+	}
+
+	return {
+		nodeResults,
+		nodesExceedingBudget,
+		totalNodes: nodeResults.size,
+		exceedingCount: nodesExceedingBudget.length,
+	};
+}

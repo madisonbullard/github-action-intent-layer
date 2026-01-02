@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	calculateCoveredCodeTokens,
+	calculateHierarchyTokenBudget,
+	calculateNodeTokenBudget,
 	calculateTokenBudget,
 	countLines,
 	countTokens,
@@ -443,5 +445,282 @@ describe("calculateCoveredCodeTokens", () => {
 			{ path: "a.ts", tokens: 1, skipped: false, skipReason: undefined },
 			{ path: "b.ts", tokens: 2, skipped: false, skipReason: undefined },
 		]);
+	});
+});
+
+describe("calculateNodeTokenBudget", () => {
+	test("calculates budget for a single node", () => {
+		const nodePath = "AGENTS.md";
+		const nodeContent = "a".repeat(100); // 100 chars = 25 tokens
+		const coveredFilePaths = ["src/index.ts"];
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(1000)], // 1000 chars = 250 tokens
+		]);
+
+		const result = calculateNodeTokenBudget(
+			nodePath,
+			nodeContent,
+			coveredFilePaths,
+			fileContents,
+			5,
+		);
+
+		expect(result.nodePath).toBe("AGENTS.md");
+		expect(result.nodeTokens).toBe(25);
+		expect(result.coveredCodeTokens).toBe(250);
+		expect(result.budgetPercent).toBe(10); // (25/250) * 100
+		expect(result.exceedsBudget).toBe(true);
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(0);
+	});
+
+	test("returns under budget when percentage is low", () => {
+		const nodePath = "src/AGENTS.md";
+		const nodeContent = "a".repeat(20); // 20 chars = 5 tokens
+		const coveredFilePaths = ["src/index.ts", "src/utils.ts"];
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(500)], // 125 tokens
+			["src/utils.ts", "a".repeat(500)], // 125 tokens
+		]);
+
+		const result = calculateNodeTokenBudget(
+			nodePath,
+			nodeContent,
+			coveredFilePaths,
+			fileContents,
+			5,
+		);
+
+		expect(result.nodeTokens).toBe(5);
+		expect(result.coveredCodeTokens).toBe(250);
+		expect(result.budgetPercent).toBe(2); // (5/250) * 100
+		expect(result.exceedsBudget).toBe(false);
+		expect(result.filesCounted).toBe(2);
+	});
+
+	test("handles zero covered code", () => {
+		const nodePath = "empty/AGENTS.md";
+		const nodeContent = "Some documentation";
+		const coveredFilePaths: string[] = [];
+		const fileContents = new Map<string, string>();
+
+		const result = calculateNodeTokenBudget(
+			nodePath,
+			nodeContent,
+			coveredFilePaths,
+			fileContents,
+			5,
+		);
+
+		expect(result.coveredCodeTokens).toBe(0);
+		expect(result.budgetPercent).toBe(0);
+		expect(result.exceedsBudget).toBe(false);
+		expect(result.filesCounted).toBe(0);
+	});
+
+	test("skips binary files in covered code", () => {
+		const nodePath = "AGENTS.md";
+		const nodeContent = "a".repeat(40); // 10 tokens
+		const coveredFilePaths = ["src/index.ts", "assets/image.png"];
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(400)], // 100 tokens
+			["assets/image.png", "binary\0content"], // Binary - skipped
+		]);
+
+		const result = calculateNodeTokenBudget(
+			nodePath,
+			nodeContent,
+			coveredFilePaths,
+			fileContents,
+			5,
+			{ skipBinaryFiles: true },
+		);
+
+		expect(result.coveredCodeTokens).toBe(100); // Only index.ts counted
+		expect(result.filesCounted).toBe(1);
+		expect(result.filesSkipped).toBe(1);
+		expect(result.budgetPercent).toBe(10); // (10/100) * 100
+	});
+
+	test("uses default budget threshold of 5%", () => {
+		const nodePath = "AGENTS.md";
+		const nodeContent = "a".repeat(24); // 6 tokens
+		const coveredFilePaths = ["src/index.ts"];
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(400)], // 100 tokens
+		]);
+
+		// 6% budget, should exceed default 5% threshold
+		const result = calculateNodeTokenBudget(
+			nodePath,
+			nodeContent,
+			coveredFilePaths,
+			fileContents,
+		);
+
+		expect(result.budgetPercent).toBe(6);
+		expect(result.exceedsBudget).toBe(true);
+	});
+});
+
+describe("calculateHierarchyTokenBudget", () => {
+	test("calculates budget for multiple nodes", () => {
+		const coveredFilesMap = new Map([
+			["AGENTS.md", { coveredFiles: ["src/index.ts"] }],
+			["packages/api/AGENTS.md", { coveredFiles: ["packages/api/client.ts"] }],
+		]);
+
+		const nodeContents = new Map([
+			["AGENTS.md", "a".repeat(40)], // 10 tokens
+			["packages/api/AGENTS.md", "a".repeat(20)], // 5 tokens
+		]);
+
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(400)], // 100 tokens
+			["packages/api/client.ts", "a".repeat(400)], // 100 tokens
+		]);
+
+		const result = calculateHierarchyTokenBudget(
+			coveredFilesMap,
+			nodeContents,
+			fileContents,
+			5,
+		);
+
+		expect(result.totalNodes).toBe(2);
+		expect(result.nodeResults.size).toBe(2);
+
+		const rootResult = result.nodeResults.get("AGENTS.md");
+		expect(rootResult?.budgetPercent).toBe(10);
+		expect(rootResult?.exceedsBudget).toBe(true);
+
+		const apiResult = result.nodeResults.get("packages/api/AGENTS.md");
+		expect(apiResult?.budgetPercent).toBe(5);
+		expect(apiResult?.exceedsBudget).toBe(false);
+	});
+
+	test("tracks nodes exceeding budget", () => {
+		const coveredFilesMap = new Map([
+			["under/AGENTS.md", { coveredFiles: ["under/file.ts"] }],
+			["over/AGENTS.md", { coveredFiles: ["over/file.ts"] }],
+		]);
+
+		const nodeContents = new Map([
+			["under/AGENTS.md", "a".repeat(8)], // 2 tokens
+			["over/AGENTS.md", "a".repeat(40)], // 10 tokens
+		]);
+
+		const fileContents = new Map([
+			["under/file.ts", "a".repeat(400)], // 100 tokens
+			["over/file.ts", "a".repeat(400)], // 100 tokens
+		]);
+
+		const result = calculateHierarchyTokenBudget(
+			coveredFilesMap,
+			nodeContents,
+			fileContents,
+			5,
+		);
+
+		expect(result.exceedingCount).toBe(1);
+		expect(result.nodesExceedingBudget).toHaveLength(1);
+		expect(result.nodesExceedingBudget[0]?.nodePath).toBe("over/AGENTS.md");
+	});
+
+	test("handles empty hierarchy", () => {
+		const result = calculateHierarchyTokenBudget(
+			new Map(),
+			new Map(),
+			new Map(),
+			5,
+		);
+
+		expect(result.totalNodes).toBe(0);
+		expect(result.exceedingCount).toBe(0);
+		expect(result.nodeResults.size).toBe(0);
+		expect(result.nodesExceedingBudget).toHaveLength(0);
+	});
+
+	test("skips nodes with missing content", () => {
+		const coveredFilesMap = new Map([
+			["AGENTS.md", { coveredFiles: ["src/index.ts"] }],
+			["missing/AGENTS.md", { coveredFiles: ["missing/file.ts"] }],
+		]);
+
+		const nodeContents = new Map([
+			["AGENTS.md", "a".repeat(40)], // Only root has content
+		]);
+
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(400)],
+			["missing/file.ts", "a".repeat(400)],
+		]);
+
+		const result = calculateHierarchyTokenBudget(
+			coveredFilesMap,
+			nodeContents,
+			fileContents,
+			5,
+		);
+
+		// Only 1 node should be processed (missing/AGENTS.md is skipped)
+		expect(result.totalNodes).toBe(1);
+		expect(result.nodeResults.has("AGENTS.md")).toBe(true);
+		expect(result.nodeResults.has("missing/AGENTS.md")).toBe(false);
+	});
+
+	test("applies skip options for binary and large files", () => {
+		const coveredFilesMap = new Map([
+			["AGENTS.md", { coveredFiles: ["src/code.ts", "assets/binary.png"] }],
+		]);
+
+		const nodeContents = new Map([
+			["AGENTS.md", "a".repeat(40)], // 10 tokens
+		]);
+
+		const fileContents = new Map([
+			["src/code.ts", "a".repeat(400)], // 100 tokens
+			["assets/binary.png", "binary\0data"], // Binary - skipped
+		]);
+
+		const result = calculateHierarchyTokenBudget(
+			coveredFilesMap,
+			nodeContents,
+			fileContents,
+			5,
+			{ skipBinaryFiles: true },
+		);
+
+		const nodeResult = result.nodeResults.get("AGENTS.md");
+		expect(nodeResult?.filesCounted).toBe(1);
+		expect(nodeResult?.filesSkipped).toBe(1);
+		expect(nodeResult?.coveredCodeTokens).toBe(100); // Only code.ts
+	});
+
+	test("uses custom budget threshold", () => {
+		const coveredFilesMap = new Map([
+			["AGENTS.md", { coveredFiles: ["src/index.ts"] }],
+		]);
+
+		const nodeContents = new Map([
+			["AGENTS.md", "a".repeat(40)], // 10 tokens
+		]);
+
+		const fileContents = new Map([
+			["src/index.ts", "a".repeat(400)], // 100 tokens
+		]);
+
+		// 10% budget with 15% threshold should NOT exceed
+		const result = calculateHierarchyTokenBudget(
+			coveredFilesMap,
+			nodeContents,
+			fileContents,
+			15, // Higher threshold
+		);
+
+		const nodeResult = result.nodeResults.get("AGENTS.md");
+		expect(nodeResult?.budgetPercent).toBe(10);
+		expect(nodeResult?.exceedsBudget).toBe(false);
+		expect(result.exceedingCount).toBe(0);
 	});
 });
