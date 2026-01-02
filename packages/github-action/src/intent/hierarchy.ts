@@ -7,6 +7,7 @@
  * is the nearest ancestor intent file.
  */
 
+import type { IntentLayerIgnore } from "../patterns/ignore";
 import type { IntentFile, IntentLayerDetectionResult } from "./detector";
 
 /**
@@ -392,4 +393,114 @@ export function getMaxDepth(hierarchy: IntentHierarchy): number {
 		}
 	}
 	return hierarchy.nodesByPath.size > 0 ? maxDepth + 1 : 0;
+}
+
+/**
+ * Result of covered files calculation for a single intent node.
+ */
+export interface CoveredFilesResult {
+	/** The intent node */
+	node: IntentNode;
+	/** All files covered by this node (where this is the nearest covering node) */
+	coveredFiles: string[];
+	/** Files that were excluded by .intentlayerignore patterns */
+	ignoredFiles: string[];
+}
+
+/**
+ * Calculate which files are covered by a specific intent node.
+ *
+ * A file is "covered" by a node if:
+ * 1. The file is in the node's directory or a subdirectory
+ * 2. There is no more specific (closer) intent node covering the file
+ * 3. The file is not excluded by .intentlayerignore patterns
+ *
+ * @param node - The intent node to calculate coverage for
+ * @param allFiles - Array of all file paths in the repository
+ * @param hierarchy - The intent hierarchy (to check for more specific nodes)
+ * @param ignore - Optional IntentLayerIgnore instance for excluding files
+ * @returns Object containing covered files and ignored files
+ */
+export function getCoveredFilesForNode(
+	node: IntentNode,
+	allFiles: string[],
+	hierarchy: IntentHierarchy,
+	ignore?: IntentLayerIgnore,
+): CoveredFilesResult {
+	const coveredFiles: string[] = [];
+	const ignoredFiles: string[] = [];
+
+	for (const filePath of allFiles) {
+		// Skip the intent file itself
+		if (filePath === node.file.path) {
+			continue;
+		}
+
+		// Skip other intent files (AGENTS.md / CLAUDE.md)
+		const fileName = filePath.substring(filePath.lastIndexOf("/") + 1);
+		if (fileName === "AGENTS.md" || fileName === "CLAUDE.md") {
+			continue;
+		}
+
+		// Check if this file is in the node's coverage area
+		const fileDir = getDirectory(filePath);
+		const nodeDir = node.directory;
+
+		// File must be in node's directory or a subdirectory
+		const isInCoverageArea =
+			fileDir === nodeDir ||
+			(nodeDir === "" && fileDir !== "") ||
+			(nodeDir !== "" && isAncestorDirectory(nodeDir, fileDir));
+
+		if (!isInCoverageArea) {
+			continue;
+		}
+
+		// Check if there's a more specific node covering this file
+		const coveringNode = findCoveringNode(filePath, hierarchy);
+		if (coveringNode !== node) {
+			continue;
+		}
+
+		// Check if file is ignored
+		if (ignore && ignore.ignores(filePath)) {
+			ignoredFiles.push(filePath);
+			continue;
+		}
+
+		coveredFiles.push(filePath);
+	}
+
+	// Sort for consistent ordering
+	coveredFiles.sort();
+	ignoredFiles.sort();
+
+	return {
+		node,
+		coveredFiles,
+		ignoredFiles,
+	};
+}
+
+/**
+ * Calculate covered files for all nodes in a hierarchy.
+ *
+ * @param hierarchy - The intent hierarchy
+ * @param allFiles - Array of all file paths in the repository
+ * @param ignore - Optional IntentLayerIgnore instance for excluding files
+ * @returns Map of node path to covered files result
+ */
+export function getCoveredFilesForHierarchy(
+	hierarchy: IntentHierarchy,
+	allFiles: string[],
+	ignore?: IntentLayerIgnore,
+): Map<string, CoveredFilesResult> {
+	const results = new Map<string, CoveredFilesResult>();
+
+	for (const node of hierarchy.nodesByPath.values()) {
+		const result = getCoveredFilesForNode(node, allFiles, hierarchy, ignore);
+		results.set(node.file.path, result);
+	}
+
+	return results;
 }

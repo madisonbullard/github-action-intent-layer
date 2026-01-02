@@ -11,6 +11,8 @@ import {
 	findNearestParentDirectory,
 	getAllNodes,
 	getAncestors,
+	getCoveredFilesForHierarchy,
+	getCoveredFilesForNode,
 	getDescendants,
 	getDirectory,
 	getMaxDepth,
@@ -21,6 +23,7 @@ import {
 	traversePostOrder,
 	traversePreOrder,
 } from "../../src/intent/hierarchy";
+import { IntentLayerIgnore } from "../../src/patterns/ignore";
 
 /**
  * Helper to create an IntentFile for testing.
@@ -674,5 +677,241 @@ describe("getMaxDepth", () => {
 		const hierarchy = buildHierarchy(files, "agents");
 		// deep/a/b/c is depth 1 from root (skipping intermediate directories)
 		expect(getMaxDepth(hierarchy)).toBe(2);
+	});
+});
+
+describe("getCoveredFilesForNode", () => {
+	test("returns empty for empty file list", () => {
+		const files = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(files, "agents");
+		const root = hierarchy.roots[0]!;
+
+		const result = getCoveredFilesForNode(root, [], hierarchy);
+
+		expect(result.coveredFiles).toHaveLength(0);
+		expect(result.ignoredFiles).toHaveLength(0);
+		expect(result.node).toBe(root);
+	});
+
+	test("covers files in root directory", () => {
+		const files = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(files, "agents");
+		const root = hierarchy.roots[0]!;
+
+		const allFiles = ["index.ts", "package.json", "README.md"];
+		const result = getCoveredFilesForNode(root, allFiles, hierarchy);
+
+		expect(result.coveredFiles).toEqual([
+			"README.md",
+			"index.ts",
+			"package.json",
+		]);
+	});
+
+	test("covers files in subdirectories when root is only node", () => {
+		const files = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(files, "agents");
+		const root = hierarchy.roots[0]!;
+
+		const allFiles = ["index.ts", "src/main.ts", "src/utils/helper.ts"];
+		const result = getCoveredFilesForNode(root, allFiles, hierarchy);
+
+		expect(result.coveredFiles).toEqual([
+			"index.ts",
+			"src/main.ts",
+			"src/utils/helper.ts",
+		]);
+	});
+
+	test("respects more specific nodes", () => {
+		const files = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(files, "agents");
+		const root = hierarchy.roots[0]!;
+		const srcNode = hierarchy.nodesByPath.get("src/AGENTS.md")!;
+
+		const allFiles = [
+			"index.ts",
+			"package.json",
+			"src/main.ts",
+			"src/utils/helper.ts",
+		];
+
+		const rootResult = getCoveredFilesForNode(root, allFiles, hierarchy);
+		const srcResult = getCoveredFilesForNode(srcNode, allFiles, hierarchy);
+
+		// Root should only cover files in root directory
+		expect(rootResult.coveredFiles).toEqual(["index.ts", "package.json"]);
+
+		// src node should cover files in src/ directory
+		expect(srcResult.coveredFiles).toEqual([
+			"src/main.ts",
+			"src/utils/helper.ts",
+		]);
+	});
+
+	test("excludes intent files from coverage", () => {
+		const files = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(files, "agents");
+		const root = hierarchy.roots[0]!;
+
+		const allFiles = [
+			"index.ts",
+			"AGENTS.md",
+			"CLAUDE.md",
+			"src/AGENTS.md",
+			"src/main.ts",
+		];
+		const result = getCoveredFilesForNode(root, allFiles, hierarchy);
+
+		// Should exclude all intent files
+		expect(result.coveredFiles).toEqual(["index.ts", "src/main.ts"]);
+	});
+
+	test("respects .intentlayerignore patterns", () => {
+		const files = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(files, "agents");
+		const root = hierarchy.roots[0]!;
+
+		const ignore = new IntentLayerIgnore();
+		ignore.add("*.log\nnode_modules/\ndist/");
+
+		const allFiles = [
+			"index.ts",
+			"debug.log",
+			"node_modules/package/index.js",
+			"dist/bundle.js",
+			"src/main.ts",
+		];
+		const result = getCoveredFilesForNode(root, allFiles, hierarchy, ignore);
+
+		expect(result.coveredFiles).toEqual(["index.ts", "src/main.ts"]);
+		expect(result.ignoredFiles).toEqual([
+			"debug.log",
+			"dist/bundle.js",
+			"node_modules/package/index.js",
+		]);
+	});
+
+	test("handles node in subdirectory without root", () => {
+		const files = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(files, "agents");
+		const apiNode = hierarchy.roots[0]!;
+
+		const allFiles = [
+			"index.ts", // Not covered (outside packages/api)
+			"packages/api/src/handler.ts",
+			"packages/api/test/handler.test.ts",
+			"packages/core/index.ts", // Not covered (different package)
+		];
+		const result = getCoveredFilesForNode(apiNode, allFiles, hierarchy);
+
+		expect(result.coveredFiles).toEqual([
+			"packages/api/src/handler.ts",
+			"packages/api/test/handler.test.ts",
+		]);
+	});
+
+	test("complex hierarchy with multiple levels", () => {
+		const files = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(files, "agents");
+
+		const allFiles = [
+			"README.md",
+			"packages/shared.ts",
+			"packages/api/handler.ts",
+			"packages/api/routes/users.ts",
+			"packages/core/index.ts",
+		];
+
+		const rootResult = getCoveredFilesForNode(
+			hierarchy.roots[0]!,
+			allFiles,
+			hierarchy,
+		);
+		const packagesResult = getCoveredFilesForNode(
+			hierarchy.nodesByPath.get("packages/AGENTS.md")!,
+			allFiles,
+			hierarchy,
+		);
+		const apiResult = getCoveredFilesForNode(
+			hierarchy.nodesByPath.get("packages/api/AGENTS.md")!,
+			allFiles,
+			hierarchy,
+		);
+
+		// Root covers only root directory files
+		expect(rootResult.coveredFiles).toEqual(["README.md"]);
+
+		// packages node covers packages/ but not packages/api/
+		expect(packagesResult.coveredFiles).toEqual([
+			"packages/core/index.ts",
+			"packages/shared.ts",
+		]);
+
+		// api node covers packages/api/
+		expect(apiResult.coveredFiles).toEqual([
+			"packages/api/handler.ts",
+			"packages/api/routes/users.ts",
+		]);
+	});
+});
+
+describe("getCoveredFilesForHierarchy", () => {
+	test("returns empty map for empty hierarchy", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const results = getCoveredFilesForHierarchy(hierarchy, ["file.ts"]);
+
+		expect(results.size).toBe(0);
+	});
+
+	test("calculates coverage for all nodes", () => {
+		const files = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(files, "agents");
+
+		const allFiles = ["index.ts", "src/main.ts", "src/utils/helper.ts"];
+		const results = getCoveredFilesForHierarchy(hierarchy, allFiles);
+
+		expect(results.size).toBe(2);
+		expect(results.get("AGENTS.md")?.coveredFiles).toEqual(["index.ts"]);
+		expect(results.get("src/AGENTS.md")?.coveredFiles).toEqual([
+			"src/main.ts",
+			"src/utils/helper.ts",
+		]);
+	});
+
+	test("applies ignore patterns to all nodes", () => {
+		const files = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(files, "agents");
+
+		const ignore = new IntentLayerIgnore();
+		ignore.add("*.test.ts");
+
+		const allFiles = [
+			"index.ts",
+			"index.test.ts",
+			"src/main.ts",
+			"src/main.test.ts",
+		];
+		const results = getCoveredFilesForHierarchy(hierarchy, allFiles, ignore);
+
+		expect(results.get("AGENTS.md")?.coveredFiles).toEqual(["index.ts"]);
+		expect(results.get("AGENTS.md")?.ignoredFiles).toEqual(["index.test.ts"]);
+		expect(results.get("src/AGENTS.md")?.coveredFiles).toEqual(["src/main.ts"]);
+		expect(results.get("src/AGENTS.md")?.ignoredFiles).toEqual([
+			"src/main.test.ts",
+		]);
 	});
 });
