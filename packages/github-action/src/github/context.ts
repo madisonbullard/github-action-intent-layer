@@ -395,3 +395,127 @@ export async function extractLinkedIssuesFromContext(
 	}
 	return extractLinkedIssues(client, pullNumber);
 }
+
+/**
+ * Represents the author of a review comment
+ */
+export interface ReviewCommentAuthor {
+	/** GitHub username */
+	login: string;
+	/** User ID */
+	id: number;
+	/** Avatar URL */
+	avatarUrl: string;
+	/** Whether this is a bot account */
+	isBot: boolean;
+}
+
+/**
+ * Represents a review comment on a pull request
+ * These are comments made on specific lines of code in the diff
+ */
+export interface PRReviewComment {
+	/** Comment ID */
+	id: number;
+	/** ID of the review this comment belongs to (may be null for standalone comments) */
+	pullRequestReviewId: number | null;
+	/** Comment body/content */
+	body: string;
+	/** The diff hunk where the comment is located */
+	diffHunk: string;
+	/** Path to the file being commented on */
+	path: string;
+	/** Line number in the diff (may be null for outdated comments) */
+	position: number | null;
+	/** Original position in the diff */
+	originalPosition: number | null;
+	/** SHA of the commit the comment references */
+	commitId: string;
+	/** SHA of the original commit */
+	originalCommitId: string;
+	/** If this is a reply, the ID of the comment being replied to */
+	inReplyToId: number | null;
+	/** Author of the comment */
+	author: ReviewCommentAuthor;
+	/** How the author is associated with the repository */
+	authorAssociation: string;
+	/** URL to view the comment on GitHub */
+	url: string;
+	/** Creation timestamp (ISO 8601) */
+	createdAt: string;
+	/** Last update timestamp (ISO 8601) */
+	updatedAt: string;
+	/** Starting line of a multi-line comment (null for single-line) */
+	startLine: number | null;
+	/** Original starting line of a multi-line comment */
+	originalStartLine: number | null;
+	/** Side of the diff where the comment starts (LEFT or RIGHT) */
+	startSide: "LEFT" | "RIGHT" | null;
+	/** Line number where the comment ends */
+	line: number | null;
+	/** Original line number where the comment ends */
+	originalLine: number | null;
+	/** Side of the diff (LEFT for deletions, RIGHT for additions) */
+	side: "LEFT" | "RIGHT" | null;
+}
+
+/**
+ * Extract all review comments from a pull request
+ * Review comments are comments made on specific lines of code in the diff,
+ * distinct from regular issue comments on the PR.
+ *
+ * @param client - GitHub API client
+ * @param pullNumber - PR number to fetch review comments for
+ * @returns Array of review comment objects
+ */
+export async function extractPRReviewComments(
+	client: GitHubClient,
+	pullNumber: number,
+): Promise<PRReviewComment[]> {
+	const comments = await client.getPullRequestReviewComments(pullNumber);
+
+	return comments.map((comment) => ({
+		id: comment.id,
+		pullRequestReviewId: comment.pull_request_review_id ?? null,
+		body: comment.body,
+		diffHunk: comment.diff_hunk,
+		path: comment.path,
+		position: comment.position ?? null,
+		originalPosition: comment.original_position ?? null,
+		commitId: comment.commit_id,
+		originalCommitId: comment.original_commit_id,
+		inReplyToId: comment.in_reply_to_id ?? null,
+		author: {
+			login: comment.user?.login ?? "unknown",
+			id: comment.user?.id ?? 0,
+			avatarUrl: comment.user?.avatar_url ?? "",
+			isBot: comment.user?.type === "Bot",
+		},
+		authorAssociation: comment.author_association,
+		url: comment.html_url,
+		createdAt: comment.created_at,
+		updatedAt: comment.updated_at,
+		startLine: comment.start_line ?? null,
+		originalStartLine: comment.original_start_line ?? null,
+		startSide: (comment.start_side as "LEFT" | "RIGHT" | null) ?? null,
+		line: comment.line ?? null,
+		originalLine: comment.original_line ?? null,
+		side: (comment.side as "LEFT" | "RIGHT" | null) ?? null,
+	}));
+}
+
+/**
+ * Extract review comments from the current PR context
+ *
+ * @param client - GitHub API client
+ * @returns Array of review comments or null if not in a PR context
+ */
+export async function extractPRReviewCommentsFromContext(
+	client: GitHubClient,
+): Promise<PRReviewComment[] | null> {
+	const pullNumber = client.pullRequestNumber;
+	if (!pullNumber) {
+		return null;
+	}
+	return extractPRReviewComments(client, pullNumber);
+}

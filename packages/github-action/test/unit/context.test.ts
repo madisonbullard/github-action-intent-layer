@@ -7,9 +7,12 @@ import {
 	extractPRCommitsFromContext,
 	extractPRMetadata,
 	extractPRMetadataFromContext,
+	extractPRReviewComments,
+	extractPRReviewCommentsFromContext,
 	type LinkedIssue,
 	type PRCommit,
 	type PRMetadata,
+	type PRReviewComment,
 	parseLinkedIssues,
 } from "../../src/github/context";
 
@@ -1012,6 +1015,429 @@ describe("LinkedIssue type structure", () => {
 
 		for (const field of expectedFields) {
 			expect(issue).toHaveProperty(field);
+		}
+	});
+});
+
+// ============================================================================
+// Review Comments Tests
+// ============================================================================
+
+/**
+ * Sample review comment data matching GitHub API response structure
+ */
+const sampleReviewCommentData = [
+	{
+		url: "https://api.github.com/repos/octocat/Hello-World/pulls/comments/1",
+		pull_request_review_id: 42,
+		id: 10,
+		node_id: "MDI0OlB1bGxSZXF1ZXN0UmV2aWV3Q29tbWVudDEw",
+		diff_hunk: "@@ -16,33 +16,40 @@ public class Connection : IConnection...",
+		path: "file1.txt",
+		position: 1,
+		original_position: 4,
+		commit_id: "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		original_commit_id: "9c48853fa3dc5c1c3d6f1f1cd1f2743e72652840",
+		in_reply_to_id: 8,
+		user: {
+			login: "octocat",
+			id: 1,
+			node_id: "MDQ6VXNlcjE=",
+			avatar_url: "https://github.com/images/error/octocat_happy.gif",
+			gravatar_id: "",
+			url: "https://api.github.com/users/octocat",
+			html_url: "https://github.com/octocat",
+			type: "User",
+			site_admin: false,
+		},
+		body: "Great stuff!",
+		created_at: "2011-04-14T16:00:49Z",
+		updated_at: "2011-04-14T16:00:49Z",
+		html_url: "https://github.com/octocat/Hello-World/pull/1#discussion-diff-1",
+		pull_request_url:
+			"https://api.github.com/repos/octocat/Hello-World/pulls/1",
+		author_association: "COLLABORATOR",
+		_links: {
+			self: {
+				href: "https://api.github.com/repos/octocat/Hello-World/pulls/comments/1",
+			},
+			html: {
+				href: "https://github.com/octocat/Hello-World/pull/1#discussion-diff-1",
+			},
+			pull_request: {
+				href: "https://api.github.com/repos/octocat/Hello-World/pulls/1",
+			},
+		},
+		start_line: 1,
+		original_start_line: 1,
+		start_side: "RIGHT",
+		line: 2,
+		original_line: 2,
+		side: "RIGHT",
+	},
+	{
+		url: "https://api.github.com/repos/octocat/Hello-World/pulls/comments/2",
+		pull_request_review_id: 43,
+		id: 11,
+		node_id: "MDI0OlB1bGxSZXF1ZXN0UmV2aWV3Q29tbWVudDEx",
+		diff_hunk: "@@ -1,5 +1,10 @@ import something",
+		path: "src/index.ts",
+		position: 5,
+		original_position: 3,
+		commit_id: "abc123def456",
+		original_commit_id: "def456abc123",
+		in_reply_to_id: null,
+		user: {
+			login: "reviewer",
+			id: 2,
+			node_id: "MDQ6VXNlcjI=",
+			avatar_url: "https://github.com/images/reviewer.gif",
+			gravatar_id: "",
+			url: "https://api.github.com/users/reviewer",
+			html_url: "https://github.com/reviewer",
+			type: "User",
+			site_admin: false,
+		},
+		body: "Consider using a more descriptive variable name here.",
+		created_at: "2024-01-15T10:30:00Z",
+		updated_at: "2024-01-15T11:00:00Z",
+		html_url: "https://github.com/octocat/Hello-World/pull/1#discussion-diff-2",
+		pull_request_url:
+			"https://api.github.com/repos/octocat/Hello-World/pulls/1",
+		author_association: "MEMBER",
+		_links: {
+			self: {
+				href: "https://api.github.com/repos/octocat/Hello-World/pulls/comments/2",
+			},
+			html: {
+				href: "https://github.com/octocat/Hello-World/pull/1#discussion-diff-2",
+			},
+			pull_request: {
+				href: "https://api.github.com/repos/octocat/Hello-World/pulls/1",
+			},
+		},
+		start_line: null,
+		original_start_line: null,
+		start_side: null,
+		line: 5,
+		original_line: 3,
+		side: "LEFT",
+	},
+];
+
+/**
+ * Creates a mock GitHub client for review comment tests
+ */
+function createMockReviewCommentClient(
+	commentData: typeof sampleReviewCommentData,
+	pullRequestNumber?: number,
+): GitHubClient {
+	return {
+		getPullRequestReviewComments: mock(() => Promise.resolve(commentData)),
+		pullRequestNumber,
+	} as unknown as GitHubClient;
+}
+
+describe("extractPRReviewComments", () => {
+	test("extracts all review comments from PR", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments).toHaveLength(2);
+	});
+
+	test("extracts comment ID correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.id).toBe(10);
+		expect(comments[1]!.id).toBe(11);
+	});
+
+	test("extracts pull request review ID correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.pullRequestReviewId).toBe(42);
+		expect(comments[1]!.pullRequestReviewId).toBe(43);
+	});
+
+	test("extracts comment body correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.body).toBe("Great stuff!");
+		expect(comments[1]!.body).toBe(
+			"Consider using a more descriptive variable name here.",
+		);
+	});
+
+	test("extracts diff hunk correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.diffHunk).toBe(
+			"@@ -16,33 +16,40 @@ public class Connection : IConnection...",
+		);
+	});
+
+	test("extracts file path correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.path).toBe("file1.txt");
+		expect(comments[1]!.path).toBe("src/index.ts");
+	});
+
+	test("extracts position information correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.position).toBe(1);
+		expect(comments[0]!.originalPosition).toBe(4);
+		expect(comments[1]!.position).toBe(5);
+		expect(comments[1]!.originalPosition).toBe(3);
+	});
+
+	test("extracts commit IDs correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.commitId).toBe(
+			"6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		);
+		expect(comments[0]!.originalCommitId).toBe(
+			"9c48853fa3dc5c1c3d6f1f1cd1f2743e72652840",
+		);
+	});
+
+	test("extracts in_reply_to_id correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.inReplyToId).toBe(8);
+		expect(comments[1]!.inReplyToId).toBeNull();
+	});
+
+	test("extracts author information correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.author).toEqual({
+			login: "octocat",
+			id: 1,
+			avatarUrl: "https://github.com/images/error/octocat_happy.gif",
+			isBot: false,
+		});
+		expect(comments[1]!.author).toEqual({
+			login: "reviewer",
+			id: 2,
+			avatarUrl: "https://github.com/images/reviewer.gif",
+			isBot: false,
+		});
+	});
+
+	test("identifies bot authors correctly", async () => {
+		const botCommentData = [
+			{
+				...sampleReviewCommentData[0]!,
+				user: {
+					...sampleReviewCommentData[0]!.user,
+					login: "dependabot[bot]",
+					type: "Bot",
+				},
+			},
+		];
+		const client = createMockReviewCommentClient(botCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.author.isBot).toBe(true);
+		expect(comments[0]!.author.login).toBe("dependabot[bot]");
+	});
+
+	test("extracts author association correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.authorAssociation).toBe("COLLABORATOR");
+		expect(comments[1]!.authorAssociation).toBe("MEMBER");
+	});
+
+	test("extracts URLs correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.url).toBe(
+			"https://github.com/octocat/Hello-World/pull/1#discussion-diff-1",
+		);
+	});
+
+	test("extracts timestamps correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.createdAt).toBe("2011-04-14T16:00:49Z");
+		expect(comments[0]!.updatedAt).toBe("2011-04-14T16:00:49Z");
+		expect(comments[1]!.createdAt).toBe("2024-01-15T10:30:00Z");
+		expect(comments[1]!.updatedAt).toBe("2024-01-15T11:00:00Z");
+	});
+
+	test("extracts multi-line comment info correctly", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+
+		// First comment has multi-line info
+		expect(comments[0]!.startLine).toBe(1);
+		expect(comments[0]!.originalStartLine).toBe(1);
+		expect(comments[0]!.startSide).toBe("RIGHT");
+		expect(comments[0]!.line).toBe(2);
+		expect(comments[0]!.originalLine).toBe(2);
+		expect(comments[0]!.side).toBe("RIGHT");
+
+		// Second comment is single-line (no start_line)
+		expect(comments[1]!.startLine).toBeNull();
+		expect(comments[1]!.originalStartLine).toBeNull();
+		expect(comments[1]!.startSide).toBeNull();
+		expect(comments[1]!.line).toBe(5);
+		expect(comments[1]!.originalLine).toBe(3);
+		expect(comments[1]!.side).toBe("LEFT");
+	});
+
+	test("handles empty comments list", async () => {
+		const client = createMockReviewCommentClient([]);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments).toEqual([]);
+	});
+
+	test("handles missing user gracefully", async () => {
+		const noUserCommentData = [
+			{
+				...sampleReviewCommentData[0]!,
+				user: null,
+			},
+		];
+		const client = createMockReviewCommentClient(
+			noUserCommentData as unknown as typeof sampleReviewCommentData,
+		);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.author.login).toBe("unknown");
+		expect(comments[0]!.author.id).toBe(0);
+		expect(comments[0]!.author.avatarUrl).toBe("");
+	});
+
+	test("handles null pull_request_review_id gracefully", async () => {
+		const noReviewIdCommentData = [
+			{
+				...sampleReviewCommentData[0]!,
+				pull_request_review_id: null,
+			},
+		];
+		const client = createMockReviewCommentClient(
+			noReviewIdCommentData as unknown as typeof sampleReviewCommentData,
+		);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.pullRequestReviewId).toBeNull();
+	});
+
+	test("handles outdated comment with null position", async () => {
+		const outdatedCommentData = [
+			{
+				...sampleReviewCommentData[0]!,
+				position: null,
+			},
+		];
+		const client = createMockReviewCommentClient(
+			outdatedCommentData as unknown as typeof sampleReviewCommentData,
+		);
+		const comments = await extractPRReviewComments(client, 42);
+
+		expect(comments[0]!.position).toBeNull();
+	});
+
+	test("calls getPullRequestReviewComments with correct pull number", async () => {
+		const mockGetComments = mock(() =>
+			Promise.resolve(sampleReviewCommentData),
+		);
+		const client = {
+			getPullRequestReviewComments: mockGetComments,
+		} as unknown as GitHubClient;
+
+		await extractPRReviewComments(client, 99);
+
+		expect(mockGetComments).toHaveBeenCalledWith(99);
+	});
+});
+
+describe("extractPRReviewCommentsFromContext", () => {
+	test("returns review comments when in PR context", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData, 42);
+		const comments = await extractPRReviewCommentsFromContext(client);
+
+		expect(comments).not.toBeNull();
+		expect(comments).toHaveLength(2);
+	});
+
+	test("returns null when not in PR context", async () => {
+		const client = createMockReviewCommentClient(
+			sampleReviewCommentData,
+			undefined,
+		);
+		const comments = await extractPRReviewCommentsFromContext(client);
+
+		expect(comments).toBeNull();
+	});
+
+	test("uses pullRequestNumber from context", async () => {
+		const mockGetComments = mock(() =>
+			Promise.resolve(sampleReviewCommentData),
+		);
+		const client = {
+			getPullRequestReviewComments: mockGetComments,
+			pullRequestNumber: 123,
+		} as unknown as GitHubClient;
+
+		await extractPRReviewCommentsFromContext(client);
+
+		expect(mockGetComments).toHaveBeenCalledWith(123);
+	});
+});
+
+describe("PRReviewComment type structure", () => {
+	test("review comment has all expected fields", async () => {
+		const client = createMockReviewCommentClient(sampleReviewCommentData);
+		const comments = await extractPRReviewComments(client, 42);
+		const comment = comments[0]!;
+
+		// Verify all expected fields exist with correct types
+		const expectedFields: (keyof PRReviewComment)[] = [
+			"id",
+			"pullRequestReviewId",
+			"body",
+			"diffHunk",
+			"path",
+			"position",
+			"originalPosition",
+			"commitId",
+			"originalCommitId",
+			"inReplyToId",
+			"author",
+			"authorAssociation",
+			"url",
+			"createdAt",
+			"updatedAt",
+			"startLine",
+			"originalStartLine",
+			"startSide",
+			"line",
+			"originalLine",
+			"side",
+		];
+
+		for (const field of expectedFields) {
+			expect(comment).toHaveProperty(field);
 		}
 	});
 });
