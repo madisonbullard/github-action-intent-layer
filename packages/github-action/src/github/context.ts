@@ -145,3 +145,117 @@ export async function extractPRMetadataFromContext(
 	}
 	return extractPRMetadata(client, pullNumber);
 }
+
+/**
+ * Represents the author of a commit (git author info)
+ */
+export interface CommitAuthor {
+	/** Author name from git */
+	name: string;
+	/** Author email from git */
+	email: string;
+	/** Commit timestamp (ISO 8601) */
+	date: string;
+}
+
+/**
+ * Represents a GitHub user associated with a commit
+ */
+export interface CommitUser {
+	/** GitHub username */
+	login: string;
+	/** User ID */
+	id: number;
+	/** Avatar URL */
+	avatarUrl: string;
+	/** Whether this is a bot account */
+	isBot: boolean;
+}
+
+/**
+ * Represents a commit in a pull request
+ */
+export interface PRCommit {
+	/** Commit SHA */
+	sha: string;
+	/** Commit message (full message including body) */
+	message: string;
+	/** Git author information */
+	author: CommitAuthor;
+	/** Git committer information */
+	committer: CommitAuthor;
+	/** GitHub user who authored the commit (may be null if not linked) */
+	gitHubAuthor: CommitUser | null;
+	/** GitHub user who committed (may be null if not linked) */
+	gitHubCommitter: CommitUser | null;
+	/** URL to view the commit on GitHub */
+	url: string;
+	/** Number of comments on the commit */
+	commentCount: number;
+	/** Parent commit SHAs */
+	parentShas: string[];
+}
+
+/**
+ * Extract all commits from a pull request
+ *
+ * @param client - GitHub API client
+ * @param pullNumber - PR number to fetch commits for
+ * @returns Array of commit objects with messages
+ */
+export async function extractPRCommits(
+	client: GitHubClient,
+	pullNumber: number,
+): Promise<PRCommit[]> {
+	const commits = await client.getPullRequestCommits(pullNumber);
+
+	return commits.map((commit) => ({
+		sha: commit.sha,
+		message: commit.commit.message,
+		author: {
+			name: commit.commit.author?.name ?? "unknown",
+			email: commit.commit.author?.email ?? "",
+			date: commit.commit.author?.date ?? "",
+		},
+		committer: {
+			name: commit.commit.committer?.name ?? "unknown",
+			email: commit.commit.committer?.email ?? "",
+			date: commit.commit.committer?.date ?? "",
+		},
+		gitHubAuthor: commit.author
+			? {
+					login: commit.author.login,
+					id: commit.author.id,
+					avatarUrl: commit.author.avatar_url,
+					isBot: commit.author.type === "Bot",
+				}
+			: null,
+		gitHubCommitter: commit.committer
+			? {
+					login: commit.committer.login,
+					id: commit.committer.id,
+					avatarUrl: commit.committer.avatar_url,
+					isBot: commit.committer.type === "Bot",
+				}
+			: null,
+		url: commit.html_url,
+		commentCount: commit.commit.comment_count,
+		parentShas: commit.parents.map((parent) => parent.sha),
+	}));
+}
+
+/**
+ * Extract commits from the current PR context
+ *
+ * @param client - GitHub API client
+ * @returns Array of commits or null if not in a PR context
+ */
+export async function extractPRCommitsFromContext(
+	client: GitHubClient,
+): Promise<PRCommit[] | null> {
+	const pullNumber = client.pullRequestNumber;
+	if (!pullNumber) {
+		return null;
+	}
+	return extractPRCommits(client, pullNumber);
+}

@@ -179,7 +179,7 @@ prompts:
 ### Phase 3: GitHub Context Extraction
 - [x] 3.1 Create GitHub API client wrapper (uses repo's `GITHUB_TOKEN`)
 - [x] 3.2 Extract PR metadata (title, description, labels)
-- [ ] 3.3 Extract all commits on branch with messages
+- [x] 3.3 Extract all commits on branch with messages
 - [ ] 3.4 Extract linked issues (parse `Fixes #123`, `Closes #456`)
 - [ ] 3.5 Extract review comments on PR
 - [ ] 3.6 Extract code diff (files changed, additions, deletions)

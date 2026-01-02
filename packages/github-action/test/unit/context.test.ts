@@ -1,8 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { GitHubClient } from "../../src/github/client";
 import {
+	extractPRCommits,
+	extractPRCommitsFromContext,
 	extractPRMetadata,
 	extractPRMetadataFromContext,
+	type PRCommit,
 	type PRMetadata,
 } from "../../src/github/context";
 
@@ -299,6 +302,367 @@ describe("PRMetadata type structure", () => {
 
 		for (const field of expectedFields) {
 			expect(metadata).toHaveProperty(field);
+		}
+	});
+});
+
+/**
+ * Sample commit data matching GitHub API response structure
+ */
+const sampleCommitData = [
+	{
+		sha: "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		commit: {
+			author: {
+				name: "Monalisa Octocat",
+				email: "support@github.com",
+				date: "2024-01-14T16:00:49Z",
+			},
+			committer: {
+				name: "Monalisa Octocat",
+				email: "support@github.com",
+				date: "2024-01-14T16:00:49Z",
+			},
+			message: "feat: add new feature\n\nThis adds an amazing new feature.",
+			comment_count: 2,
+		},
+		html_url:
+			"https://github.com/owner/repo/commit/6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		author: {
+			login: "octocat",
+			id: 1,
+			avatar_url: "https://github.com/images/error/octocat_happy.gif",
+			type: "User",
+		},
+		committer: {
+			login: "octocat",
+			id: 1,
+			avatar_url: "https://github.com/images/error/octocat_happy.gif",
+			type: "User",
+		},
+		parents: [
+			{
+				sha: "abc123parent",
+			},
+		],
+	},
+	{
+		sha: "abc456def789",
+		commit: {
+			author: {
+				name: "Jane Developer",
+				email: "jane@example.com",
+				date: "2024-01-15T10:30:00Z",
+			},
+			committer: {
+				name: "Jane Developer",
+				email: "jane@example.com",
+				date: "2024-01-15T10:30:00Z",
+			},
+			message: "fix: resolve bug in feature",
+			comment_count: 0,
+		},
+		html_url: "https://github.com/owner/repo/commit/abc456def789",
+		author: {
+			login: "janedev",
+			id: 2,
+			avatar_url: "https://github.com/images/error/jane.gif",
+			type: "User",
+		},
+		committer: {
+			login: "janedev",
+			id: 2,
+			avatar_url: "https://github.com/images/error/jane.gif",
+			type: "User",
+		},
+		parents: [
+			{
+				sha: "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+			},
+		],
+	},
+];
+
+/**
+ * Creates a mock GitHub client for commit tests
+ */
+function createMockCommitClient(
+	commitData: typeof sampleCommitData,
+	pullRequestNumber?: number,
+): GitHubClient {
+	return {
+		getPullRequestCommits: mock(() => Promise.resolve(commitData)),
+		pullRequestNumber,
+	} as unknown as GitHubClient;
+}
+
+describe("extractPRCommits", () => {
+	test("extracts all commits from PR", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits).toHaveLength(2);
+	});
+
+	test("extracts commit SHA correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.sha).toBe("6dcb09b5b57875f334f61aebed695e2e4193db5e");
+		expect(commits[1]!.sha).toBe("abc456def789");
+	});
+
+	test("extracts commit message correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.message).toBe(
+			"feat: add new feature\n\nThis adds an amazing new feature.",
+		);
+		expect(commits[1]!.message).toBe("fix: resolve bug in feature");
+	});
+
+	test("extracts git author information correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.author).toEqual({
+			name: "Monalisa Octocat",
+			email: "support@github.com",
+			date: "2024-01-14T16:00:49Z",
+		});
+	});
+
+	test("extracts git committer information correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.committer).toEqual({
+			name: "Monalisa Octocat",
+			email: "support@github.com",
+			date: "2024-01-14T16:00:49Z",
+		});
+	});
+
+	test("extracts GitHub author correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.gitHubAuthor).toEqual({
+			login: "octocat",
+			id: 1,
+			avatarUrl: "https://github.com/images/error/octocat_happy.gif",
+			isBot: false,
+		});
+	});
+
+	test("identifies bot GitHub authors correctly", async () => {
+		const baseCommit = sampleCommitData[0]!;
+		const botCommitData = [
+			{
+				sha: baseCommit.sha,
+				commit: baseCommit.commit,
+				html_url: baseCommit.html_url,
+				author: {
+					login: "dependabot[bot]",
+					id: 1,
+					avatar_url: "https://github.com/images/error/octocat_happy.gif",
+					type: "Bot",
+				},
+				committer: baseCommit.committer,
+				parents: baseCommit.parents,
+			},
+		];
+		const client = createMockCommitClient(botCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.gitHubAuthor?.isBot).toBe(true);
+		expect(commits[0]!.gitHubAuthor?.login).toBe("dependabot[bot]");
+	});
+
+	test("handles null GitHub author gracefully", async () => {
+		const baseCommit = sampleCommitData[0]!;
+		const noAuthorCommitData = [
+			{
+				sha: baseCommit.sha,
+				commit: baseCommit.commit,
+				html_url: baseCommit.html_url,
+				author: null,
+				committer: baseCommit.committer,
+				parents: baseCommit.parents,
+			},
+		];
+		const client = createMockCommitClient(
+			noAuthorCommitData as unknown as typeof sampleCommitData,
+		);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.gitHubAuthor).toBeNull();
+	});
+
+	test("handles null GitHub committer gracefully", async () => {
+		const baseCommit = sampleCommitData[0]!;
+		const noCommitterCommitData = [
+			{
+				sha: baseCommit.sha,
+				commit: baseCommit.commit,
+				html_url: baseCommit.html_url,
+				author: baseCommit.author,
+				committer: null,
+				parents: baseCommit.parents,
+			},
+		];
+		const client = createMockCommitClient(
+			noCommitterCommitData as unknown as typeof sampleCommitData,
+		);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.gitHubCommitter).toBeNull();
+	});
+
+	test("extracts commit URL correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.url).toBe(
+			"https://github.com/owner/repo/commit/6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		);
+	});
+
+	test("extracts comment count correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.commentCount).toBe(2);
+		expect(commits[1]!.commentCount).toBe(0);
+	});
+
+	test("extracts parent SHAs correctly", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.parentShas).toEqual(["abc123parent"]);
+		expect(commits[1]!.parentShas).toEqual([
+			"6dcb09b5b57875f334f61aebed695e2e4193db5e",
+		]);
+	});
+
+	test("handles multiple parent commits (merge commits)", async () => {
+		const baseCommit = sampleCommitData[0]!;
+		const mergeCommitData = [
+			{
+				sha: baseCommit.sha,
+				commit: baseCommit.commit,
+				html_url: baseCommit.html_url,
+				author: baseCommit.author,
+				committer: baseCommit.committer,
+				parents: [{ sha: "parent1" }, { sha: "parent2" }],
+			},
+		];
+		const client = createMockCommitClient(mergeCommitData);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.parentShas).toEqual(["parent1", "parent2"]);
+	});
+
+	test("handles empty commits list", async () => {
+		const client = createMockCommitClient([]);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits).toEqual([]);
+	});
+
+	test("handles missing git author fields gracefully", async () => {
+		const baseCommit = sampleCommitData[0]!;
+		const noGitAuthorCommitData = [
+			{
+				sha: baseCommit.sha,
+				commit: {
+					author: null,
+					committer: baseCommit.commit.committer,
+					message: baseCommit.commit.message,
+					comment_count: baseCommit.commit.comment_count,
+				},
+				html_url: baseCommit.html_url,
+				author: baseCommit.author,
+				committer: baseCommit.committer,
+				parents: baseCommit.parents,
+			},
+		];
+		const client = createMockCommitClient(
+			noGitAuthorCommitData as unknown as typeof sampleCommitData,
+		);
+		const commits = await extractPRCommits(client, 42);
+
+		expect(commits[0]!.author).toEqual({
+			name: "unknown",
+			email: "",
+			date: "",
+		});
+	});
+
+	test("calls getPullRequestCommits with correct pull number", async () => {
+		const mockGetCommits = mock(() => Promise.resolve(sampleCommitData));
+		const client = {
+			getPullRequestCommits: mockGetCommits,
+		} as unknown as GitHubClient;
+
+		await extractPRCommits(client, 99);
+
+		expect(mockGetCommits).toHaveBeenCalledWith(99);
+	});
+});
+
+describe("extractPRCommitsFromContext", () => {
+	test("returns commits when in PR context", async () => {
+		const client = createMockCommitClient(sampleCommitData, 42);
+		const commits = await extractPRCommitsFromContext(client);
+
+		expect(commits).not.toBeNull();
+		expect(commits).toHaveLength(2);
+	});
+
+	test("returns null when not in PR context", async () => {
+		const client = createMockCommitClient(sampleCommitData, undefined);
+		const commits = await extractPRCommitsFromContext(client);
+
+		expect(commits).toBeNull();
+	});
+
+	test("uses pullRequestNumber from context", async () => {
+		const mockGetCommits = mock(() => Promise.resolve(sampleCommitData));
+		const client = {
+			getPullRequestCommits: mockGetCommits,
+			pullRequestNumber: 123,
+		} as unknown as GitHubClient;
+
+		await extractPRCommitsFromContext(client);
+
+		expect(mockGetCommits).toHaveBeenCalledWith(123);
+	});
+});
+
+describe("PRCommit type structure", () => {
+	test("commit has all expected fields", async () => {
+		const client = createMockCommitClient(sampleCommitData);
+		const commits = await extractPRCommits(client, 42);
+		const commit = commits[0]!;
+
+		// Verify all expected fields exist with correct types
+		const expectedFields: (keyof PRCommit)[] = [
+			"sha",
+			"message",
+			"author",
+			"committer",
+			"gitHubAuthor",
+			"gitHubCommitter",
+			"url",
+			"commentCount",
+			"parentShas",
+		];
+
+		for (const field of expectedFields) {
+			expect(commit).toHaveProperty(field);
 		}
 	});
 });
