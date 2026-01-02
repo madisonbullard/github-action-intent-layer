@@ -183,7 +183,7 @@ prompts:
 - [x] 3.4 Extract linked issues (parse `Fixes #123`, `Closes #456`)
 - [x] 3.5 Extract review comments on PR
 - [x] 3.6 Extract code diff (files changed, additions, deletions)
-- [ ] 3.7 Write unit tests with mocked GitHub API responses
+- [x] 3.7 Write unit tests with mocked GitHub API responses
 
 ### Phase 4: Intent Layer Detection
 - [ ] 4.1 Detect existing `AGENTS.md` files in repo
