@@ -259,3 +259,139 @@ export async function extractPRCommitsFromContext(
 	}
 	return extractPRCommits(client, pullNumber);
 }
+
+/**
+ * Represents a linked issue reference parsed from PR/commit text
+ */
+export interface LinkedIssue {
+	/** Issue number */
+	number: number;
+	/** Repository owner (null if same repo) */
+	owner: string | null;
+	/** Repository name (null if same repo) */
+	repo: string | null;
+	/** The keyword used to link (e.g., "fixes", "closes", "resolves") */
+	keyword: string;
+	/** The raw matched text */
+	rawMatch: string;
+}
+
+/**
+ * Keywords that link a PR to an issue for auto-closing
+ * These are case-insensitive and may be followed by optional colons
+ * Reference: https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue
+ */
+const LINKING_KEYWORDS = [
+	"close",
+	"closes",
+	"closed",
+	"fix",
+	"fixes",
+	"fixed",
+	"resolve",
+	"resolves",
+	"resolved",
+] as const;
+
+/**
+ * Regex pattern for parsing linked issues from text
+ * Matches patterns like:
+ * - "Fixes #123"
+ * - "closes: #456"
+ * - "RESOLVES owner/repo#789"
+ * - "fix octo-org/octo-repo#100"
+ */
+const LINKED_ISSUE_PATTERN = new RegExp(
+	`\\b(${LINKING_KEYWORDS.join("|")}):?\\s+(?:([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+))?#(\\d+)`,
+	"gi",
+);
+
+/**
+ * Parse linked issues from text content (PR description, commit messages, etc.)
+ *
+ * @param text - Text to parse for linked issue references
+ * @returns Array of linked issue references found in the text
+ */
+export function parseLinkedIssues(text: string): LinkedIssue[] {
+	if (!text) {
+		return [];
+	}
+
+	const linkedIssues: LinkedIssue[] = [];
+
+	// Use matchAll to avoid stateful regex iteration issues
+	const matches = text.matchAll(LINKED_ISSUE_PATTERN);
+
+	for (const match of matches) {
+		const [rawMatch, keyword, owner, repo, issueNumber] = match;
+		linkedIssues.push({
+			number: Number.parseInt(issueNumber!, 10),
+			owner: owner || null,
+			repo: repo || null,
+			keyword: keyword!.toLowerCase(),
+			rawMatch: rawMatch!,
+		});
+	}
+
+	return linkedIssues;
+}
+
+/**
+ * Extract linked issues from a PR's description and commit messages
+ *
+ * @param client - GitHub API client
+ * @param pullNumber - PR number to extract linked issues from
+ * @returns Array of unique linked issues (deduplicated by issue number + repo)
+ */
+export async function extractLinkedIssues(
+	client: GitHubClient,
+	pullNumber: number,
+): Promise<LinkedIssue[]> {
+	// Fetch PR metadata and commits
+	const [prMetadata, commits] = await Promise.all([
+		extractPRMetadata(client, pullNumber),
+		extractPRCommits(client, pullNumber),
+	]);
+
+	const allLinkedIssues: LinkedIssue[] = [];
+
+	// Parse from PR description
+	if (prMetadata.description) {
+		allLinkedIssues.push(...parseLinkedIssues(prMetadata.description));
+	}
+
+	// Parse from commit messages
+	for (const commit of commits) {
+		allLinkedIssues.push(...parseLinkedIssues(commit.message));
+	}
+
+	// Deduplicate by issue number + owner + repo
+	const seen = new Set<string>();
+	const uniqueLinkedIssues: LinkedIssue[] = [];
+
+	for (const issue of allLinkedIssues) {
+		const key = `${issue.owner ?? ""}/${issue.repo ?? ""}#${issue.number}`;
+		if (!seen.has(key)) {
+			seen.add(key);
+			uniqueLinkedIssues.push(issue);
+		}
+	}
+
+	return uniqueLinkedIssues;
+}
+
+/**
+ * Extract linked issues from the current PR context
+ *
+ * @param client - GitHub API client
+ * @returns Array of linked issues or null if not in a PR context
+ */
+export async function extractLinkedIssuesFromContext(
+	client: GitHubClient,
+): Promise<LinkedIssue[] | null> {
+	const pullNumber = client.pullRequestNumber;
+	if (!pullNumber) {
+		return null;
+	}
+	return extractLinkedIssues(client, pullNumber);
+}

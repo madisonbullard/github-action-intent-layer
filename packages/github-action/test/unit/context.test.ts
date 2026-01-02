@@ -1,12 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { GitHubClient } from "../../src/github/client";
 import {
+	extractLinkedIssues,
+	extractLinkedIssuesFromContext,
 	extractPRCommits,
 	extractPRCommitsFromContext,
 	extractPRMetadata,
 	extractPRMetadataFromContext,
+	type LinkedIssue,
 	type PRCommit,
 	type PRMetadata,
+	parseLinkedIssues,
 } from "../../src/github/context";
 
 /**
@@ -663,6 +667,351 @@ describe("PRCommit type structure", () => {
 
 		for (const field of expectedFields) {
 			expect(commit).toHaveProperty(field);
+		}
+	});
+});
+
+// ============================================================================
+// Linked Issues Tests
+// ============================================================================
+
+describe("parseLinkedIssues", () => {
+	test("parses simple 'Fixes #123' format", () => {
+		const issues = parseLinkedIssues("Fixes #123");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]).toEqual({
+			number: 123,
+			owner: null,
+			repo: null,
+			keyword: "fixes",
+			rawMatch: "Fixes #123",
+		});
+	});
+
+	test("parses 'closes #456' format (lowercase)", () => {
+		const issues = parseLinkedIssues("closes #456");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.number).toBe(456);
+		expect(issues[0]!.keyword).toBe("closes");
+	});
+
+	test("parses 'RESOLVES #789' format (uppercase)", () => {
+		const issues = parseLinkedIssues("RESOLVES #789");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.number).toBe(789);
+		expect(issues[0]!.keyword).toBe("resolves");
+	});
+
+	test("parses keyword with colon 'Closes: #100'", () => {
+		const issues = parseLinkedIssues("Closes: #100");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.number).toBe(100);
+		expect(issues[0]!.keyword).toBe("closes");
+	});
+
+	test("parses cross-repo reference 'Fixes owner/repo#123'", () => {
+		const issues = parseLinkedIssues("Fixes octo-org/octo-repo#123");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]).toEqual({
+			number: 123,
+			owner: "octo-org",
+			repo: "octo-repo",
+			keyword: "fixes",
+			rawMatch: "Fixes octo-org/octo-repo#123",
+		});
+	});
+
+	test("parses all supported keywords", () => {
+		const keywords = [
+			"close",
+			"closes",
+			"closed",
+			"fix",
+			"fixes",
+			"fixed",
+			"resolve",
+			"resolves",
+			"resolved",
+		];
+
+		for (const keyword of keywords) {
+			const issues = parseLinkedIssues(`${keyword} #1`);
+			expect(issues).toHaveLength(1);
+			expect(issues[0]!.keyword).toBe(keyword);
+		}
+	});
+
+	test("parses multiple issues in same text", () => {
+		const text = "Fixes #123, closes #456, resolves owner/repo#789";
+		const issues = parseLinkedIssues(text);
+
+		expect(issues).toHaveLength(3);
+		expect(issues[0]!.number).toBe(123);
+		expect(issues[1]!.number).toBe(456);
+		expect(issues[2]!.number).toBe(789);
+		expect(issues[2]!.owner).toBe("owner");
+		expect(issues[2]!.repo).toBe("repo");
+	});
+
+	test("parses issues from multi-line text", () => {
+		const text = `This PR adds a new feature.
+
+Fixes #123
+
+Also resolves #456 which was related.`;
+		const issues = parseLinkedIssues(text);
+
+		expect(issues).toHaveLength(2);
+		expect(issues[0]!.number).toBe(123);
+		expect(issues[1]!.number).toBe(456);
+	});
+
+	test("returns empty array for null/empty text", () => {
+		expect(parseLinkedIssues("")).toEqual([]);
+		expect(parseLinkedIssues(null as unknown as string)).toEqual([]);
+	});
+
+	test("returns empty array when no linked issues found", () => {
+		const text = "This is a regular commit message with no issue references.";
+		const issues = parseLinkedIssues(text);
+
+		expect(issues).toEqual([]);
+	});
+
+	test("does not match partial keywords", () => {
+		const text = "prefix_fixes #123 or fixing #456";
+		const issues = parseLinkedIssues(text);
+
+		// 'fixing' is not a valid keyword, 'prefix_fixes' should not match due to \\b
+		expect(issues).toHaveLength(0);
+	});
+
+	test("handles repo names with dots and underscores", () => {
+		const issues = parseLinkedIssues("Fixes my_org/my.repo-name#42");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.owner).toBe("my_org");
+		expect(issues[0]!.repo).toBe("my.repo-name");
+	});
+
+	test("handles multiple spaces after keyword", () => {
+		const issues = parseLinkedIssues("Fixes  #123");
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.number).toBe(123);
+	});
+});
+
+/**
+ * Creates a mock GitHub client for linked issues tests
+ */
+function createMockLinkedIssuesClient(
+	prData: Record<string, unknown>,
+	commitData: typeof sampleCommitData,
+	pullRequestNumber?: number,
+): GitHubClient {
+	return {
+		getPullRequest: mock(() => Promise.resolve(prData)),
+		getPullRequestCommits: mock(() => Promise.resolve(commitData)),
+		pullRequestNumber,
+	} as unknown as GitHubClient;
+}
+
+describe("extractLinkedIssues", () => {
+	test("extracts linked issues from PR description", async () => {
+		const prData = {
+			...samplePRData,
+			body: "This PR fixes #123 and closes #456",
+		};
+		const client = createMockLinkedIssuesClient(prData, []);
+		const issues = await extractLinkedIssues(client, 42);
+
+		expect(issues).toHaveLength(2);
+		expect(issues[0]!.number).toBe(123);
+		expect(issues[1]!.number).toBe(456);
+	});
+
+	test("extracts linked issues from commit messages", async () => {
+		const commitData = [
+			{
+				...sampleCommitData[0]!,
+				commit: {
+					...sampleCommitData[0]!.commit,
+					message: "feat: add feature\n\nFixes #100",
+				},
+			},
+			{
+				...sampleCommitData[1]!,
+				commit: {
+					...sampleCommitData[1]!.commit,
+					message: "fix: resolve bug\n\nCloses #200",
+				},
+			},
+		];
+		const prData = { ...samplePRData, body: null };
+		const client = createMockLinkedIssuesClient(prData, commitData);
+		const issues = await extractLinkedIssues(client, 42);
+
+		expect(issues).toHaveLength(2);
+		expect(issues[0]!.number).toBe(100);
+		expect(issues[1]!.number).toBe(200);
+	});
+
+	test("combines issues from PR description and commits", async () => {
+		const commitData = [
+			{
+				...sampleCommitData[0]!,
+				commit: {
+					...sampleCommitData[0]!.commit,
+					message: "fix: resolve\n\nFixes #200",
+				},
+			},
+		];
+		const prData = { ...samplePRData, body: "Closes #100" };
+		const client = createMockLinkedIssuesClient(prData, commitData);
+		const issues = await extractLinkedIssues(client, 42);
+
+		expect(issues).toHaveLength(2);
+		expect(issues[0]!.number).toBe(100);
+		expect(issues[1]!.number).toBe(200);
+	});
+
+	test("deduplicates linked issues", async () => {
+		const commitData = [
+			{
+				...sampleCommitData[0]!,
+				commit: {
+					...sampleCommitData[0]!.commit,
+					message: "feat: add feature\n\nFixes #123",
+				},
+			},
+			{
+				...sampleCommitData[1]!,
+				commit: {
+					...sampleCommitData[1]!.commit,
+					message: "fix: tweak feature\n\nFixes #123",
+				},
+			},
+		];
+		const prData = { ...samplePRData, body: "Fixes #123" };
+		const client = createMockLinkedIssuesClient(prData, commitData);
+		const issues = await extractLinkedIssues(client, 42);
+
+		// Same issue referenced 3 times, should only appear once
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.number).toBe(123);
+	});
+
+	test("keeps cross-repo issues separate from same-repo issues", async () => {
+		const prData = {
+			...samplePRData,
+			body: "Fixes #123, fixes owner/repo#123",
+		};
+		const client = createMockLinkedIssuesClient(prData, []);
+		const issues = await extractLinkedIssues(client, 42);
+
+		// Same issue number but different repos = different issues
+		expect(issues).toHaveLength(2);
+		expect(issues[0]!.owner).toBeNull();
+		expect(issues[1]!.owner).toBe("owner");
+	});
+
+	test("returns empty array when no linked issues found", async () => {
+		const prData = {
+			...samplePRData,
+			body: "This is just a regular PR description",
+		};
+		const commitData = [
+			{
+				...sampleCommitData[0]!,
+				commit: {
+					...sampleCommitData[0]!.commit,
+					message: "feat: add something",
+				},
+			},
+		];
+		const client = createMockLinkedIssuesClient(prData, commitData);
+		const issues = await extractLinkedIssues(client, 42);
+
+		expect(issues).toEqual([]);
+	});
+
+	test("handles null PR description", async () => {
+		const prData = { ...samplePRData, body: null };
+		const commitData = [
+			{
+				...sampleCommitData[0]!,
+				commit: {
+					...sampleCommitData[0]!.commit,
+					message: "Fixes #42",
+				},
+			},
+		];
+		const client = createMockLinkedIssuesClient(prData, commitData);
+		const issues = await extractLinkedIssues(client, 42);
+
+		expect(issues).toHaveLength(1);
+		expect(issues[0]!.number).toBe(42);
+	});
+});
+
+describe("extractLinkedIssuesFromContext", () => {
+	test("returns linked issues when in PR context", async () => {
+		const prData = { ...samplePRData, body: "Fixes #123" };
+		const client = createMockLinkedIssuesClient(prData, [], 42);
+		const issues = await extractLinkedIssuesFromContext(client);
+
+		expect(issues).not.toBeNull();
+		expect(issues).toHaveLength(1);
+		expect(issues![0]!.number).toBe(123);
+	});
+
+	test("returns null when not in PR context", async () => {
+		const prData = { ...samplePRData, body: "Fixes #123" };
+		const client = createMockLinkedIssuesClient(prData, [], undefined);
+		const issues = await extractLinkedIssuesFromContext(client);
+
+		expect(issues).toBeNull();
+	});
+
+	test("uses pullRequestNumber from context", async () => {
+		const mockGetPR = mock(() =>
+			Promise.resolve({ ...samplePRData, body: "Fixes #1" }),
+		);
+		const mockGetCommits = mock(() => Promise.resolve([]));
+		const client = {
+			getPullRequest: mockGetPR,
+			getPullRequestCommits: mockGetCommits,
+			pullRequestNumber: 99,
+		} as unknown as GitHubClient;
+
+		await extractLinkedIssuesFromContext(client);
+
+		expect(mockGetPR).toHaveBeenCalledWith(99);
+		expect(mockGetCommits).toHaveBeenCalledWith(99);
+	});
+});
+
+describe("LinkedIssue type structure", () => {
+	test("linked issue has all expected fields", () => {
+		const issues = parseLinkedIssues("Fixes owner/repo#123");
+		const issue = issues[0]!;
+
+		const expectedFields: (keyof LinkedIssue)[] = [
+			"number",
+			"owner",
+			"repo",
+			"keyword",
+			"rawMatch",
+		];
+
+		for (const field of expectedFields) {
+			expect(issue).toHaveProperty(field);
 		}
 	});
 });
