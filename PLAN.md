@@ -182,7 +182,7 @@ prompts:
 - [x] 3.3 Extract all commits on branch with messages
 - [x] 3.4 Extract linked issues (parse `Fixes #123`, `Closes #456`)
 - [x] 3.5 Extract review comments on PR
-- [ ] 3.6 Extract code diff (files changed, additions, deletions)
+- [x] 3.6 Extract code diff (files changed, additions, deletions)
 - [ ] 3.7 Write unit tests with mocked GitHub API responses
 
 ### Phase 4: Intent Layer Detection
