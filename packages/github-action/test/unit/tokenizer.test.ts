@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+	analyzeHierarchyForSplits,
+	analyzeNodeForSplit,
 	calculateCoveredCodeTokens,
 	calculateHierarchyTokenBudget,
 	calculateNodeTokenBudget,
@@ -722,5 +724,548 @@ describe("calculateHierarchyTokenBudget", () => {
 		expect(nodeResult?.budgetPercent).toBe(10);
 		expect(nodeResult?.exceedsBudget).toBe(false);
 		expect(result.exceedingCount).toBe(0);
+	});
+});
+
+describe("analyzeNodeForSplit", () => {
+	test("returns shouldSplit false when under budget", () => {
+		const result = analyzeNodeForSplit(
+			"AGENTS.md",
+			"",
+			["src/index.ts", "src/utils.ts"],
+			new Map([
+				["src/index.ts", "a".repeat(400)],
+				["src/utils.ts", "a".repeat(400)],
+			]),
+			3, // 3% budget - under threshold
+			5,
+		);
+
+		expect(result.shouldSplit).toBe(false);
+		expect(result.suggestions).toHaveLength(0);
+	});
+
+	test("suggests splits for subdirectories with substantial coverage", () => {
+		// Node exceeds budget at 10%
+		// Two subdirectories: src/api (3 files) and src/utils (3 files)
+		const coveredFiles = [
+			"src/api/client.ts",
+			"src/api/routes.ts",
+			"src/api/handlers.ts",
+			"src/utils/helpers.ts",
+			"src/utils/format.ts",
+			"src/utils/validate.ts",
+		];
+
+		const fileContents = new Map([
+			["src/api/client.ts", "a".repeat(200)], // 50 tokens
+			["src/api/routes.ts", "a".repeat(200)], // 50 tokens
+			["src/api/handlers.ts", "a".repeat(200)], // 50 tokens
+			["src/utils/helpers.ts", "a".repeat(200)], // 50 tokens
+			["src/utils/format.ts", "a".repeat(200)], // 50 tokens
+			["src/utils/validate.ts", "a".repeat(200)], // 50 tokens
+		]);
+
+		const result = analyzeNodeForSplit(
+			"src/AGENTS.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10, // 10% budget - exceeds 5% threshold
+			5,
+		);
+
+		expect(result.shouldSplit).toBe(true);
+		expect(result.suggestions.length).toBeGreaterThanOrEqual(2);
+
+		// Both api and utils should be suggested
+		const suggestedDirs = result.suggestions.map((s) => s.suggestedDirectory);
+		expect(suggestedDirs).toContain("src/api");
+		expect(suggestedDirs).toContain("src/utils");
+	});
+
+	test("skips subdirectories with too few files", () => {
+		// Only 2 files in subdirectory (less than MIN_FILES_FOR_SPLIT = 3)
+		const coveredFiles = [
+			"src/api/client.ts",
+			"src/api/routes.ts",
+			"src/index.ts",
+			"src/config.ts",
+			"src/main.ts",
+		];
+
+		const fileContents = new Map([
+			["src/api/client.ts", "a".repeat(200)],
+			["src/api/routes.ts", "a".repeat(200)],
+			["src/index.ts", "a".repeat(200)],
+			["src/config.ts", "a".repeat(200)],
+			["src/main.ts", "a".repeat(200)],
+		]);
+
+		const result = analyzeNodeForSplit(
+			"src/AGENTS.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+		);
+
+		expect(result.shouldSplit).toBe(true);
+		// api subdirectory has only 2 files, should NOT be suggested
+		const apiSuggestion = result.suggestions.find(
+			(s) => s.suggestedDirectory === "src/api",
+		);
+		expect(apiSuggestion).toBeUndefined();
+	});
+
+	test("skips subdirectories with too small coverage percentage", () => {
+		// One small subdirectory and one large one
+		const coveredFiles = [
+			"src/api/client.ts",
+			"src/api/routes.ts",
+			"src/api/handlers.ts",
+			"src/tiny/small.ts",
+			"src/tiny/mini.ts",
+			"src/tiny/nano.ts",
+			"src/main.ts",
+		];
+
+		const fileContents = new Map([
+			["src/api/client.ts", "a".repeat(400)], // 100 tokens each
+			["src/api/routes.ts", "a".repeat(400)],
+			["src/api/handlers.ts", "a".repeat(400)],
+			["src/tiny/small.ts", "a".repeat(4)], // 1 token each - tiny
+			["src/tiny/mini.ts", "a".repeat(4)],
+			["src/tiny/nano.ts", "a".repeat(4)],
+			["src/main.ts", "a".repeat(400)],
+		]);
+
+		const result = analyzeNodeForSplit(
+			"src/AGENTS.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+		);
+
+		expect(result.shouldSplit).toBe(true);
+		// tiny has 3 files but <10% coverage
+		const tinySuggestion = result.suggestions.find(
+			(s) => s.suggestedDirectory === "src/tiny",
+		);
+		expect(tinySuggestion).toBeUndefined();
+
+		// api should be suggested
+		const apiSuggestion = result.suggestions.find(
+			(s) => s.suggestedDirectory === "src/api",
+		);
+		expect(apiSuggestion).toBeDefined();
+	});
+
+	test("skips subdirectories that already have intent nodes", () => {
+		const coveredFiles = [
+			"src/api/client.ts",
+			"src/api/routes.ts",
+			"src/api/handlers.ts",
+		];
+
+		const fileContents = new Map([
+			["src/api/client.ts", "a".repeat(200)],
+			["src/api/routes.ts", "a".repeat(200)],
+			["src/api/handlers.ts", "a".repeat(200)],
+		]);
+
+		// src/api already has an intent node
+		const existingNodeDirectories = new Set(["src/api"]);
+
+		const result = analyzeNodeForSplit(
+			"src/AGENTS.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+			existingNodeDirectories,
+		);
+
+		expect(result.shouldSplit).toBe(true);
+		expect(result.suggestions).toHaveLength(0);
+	});
+
+	test("handles root-level node correctly", () => {
+		const coveredFiles = [
+			"packages/api/index.ts",
+			"packages/api/client.ts",
+			"packages/api/routes.ts",
+			"packages/web/app.ts",
+			"packages/web/pages.ts",
+			"packages/web/components.ts",
+		];
+
+		const fileContents = new Map([
+			["packages/api/index.ts", "a".repeat(200)],
+			["packages/api/client.ts", "a".repeat(200)],
+			["packages/api/routes.ts", "a".repeat(200)],
+			["packages/web/app.ts", "a".repeat(200)],
+			["packages/web/pages.ts", "a".repeat(200)],
+			["packages/web/components.ts", "a".repeat(200)],
+		]);
+
+		const result = analyzeNodeForSplit(
+			"AGENTS.md",
+			"", // Root directory
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+		);
+
+		expect(result.shouldSplit).toBe(true);
+		// Should suggest "packages" as the immediate subdirectory
+		const packagesSuggestion = result.suggestions.find(
+			(s) => s.suggestedDirectory === "packages",
+		);
+		expect(packagesSuggestion).toBeDefined();
+	});
+
+	test("uses custom intent file name", () => {
+		const coveredFiles = [
+			"src/api/client.ts",
+			"src/api/routes.ts",
+			"src/api/handlers.ts",
+		];
+
+		const fileContents = new Map([
+			["src/api/client.ts", "a".repeat(200)],
+			["src/api/routes.ts", "a".repeat(200)],
+			["src/api/handlers.ts", "a".repeat(200)],
+		]);
+
+		const result = analyzeNodeForSplit(
+			"src/CLAUDE.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+			new Set(),
+			{},
+			"CLAUDE.md",
+		);
+
+		expect(result.suggestions[0]?.suggestedNodePath).toBe("src/api/CLAUDE.md");
+	});
+
+	test("sorts suggestions by coverage percentage descending", () => {
+		const coveredFiles = [
+			"src/small/a.ts",
+			"src/small/b.ts",
+			"src/small/c.ts",
+			"src/large/x.ts",
+			"src/large/y.ts",
+			"src/large/z.ts",
+		];
+
+		// Make both subdirectories have >10% coverage
+		// small: 3 files x 200 chars = 600 chars = 150 tokens (30%)
+		// large: 3 files x 400 chars = 1200 chars = 300 tokens (60%)
+		// other: none, so remaining 10% is just for coverage calculation purposes
+		// Total: 450 tokens
+		const fileContents = new Map([
+			["src/small/a.ts", "a".repeat(200)], // 50 tokens each
+			["src/small/b.ts", "a".repeat(200)],
+			["src/small/c.ts", "a".repeat(200)],
+			["src/large/x.ts", "a".repeat(400)], // 100 tokens each
+			["src/large/y.ts", "a".repeat(400)],
+			["src/large/z.ts", "a".repeat(400)],
+		]);
+		// small: 150 tokens / 450 total = 33.3%
+		// large: 300 tokens / 450 total = 66.7%
+
+		const result = analyzeNodeForSplit(
+			"src/AGENTS.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+		);
+
+		expect(result.suggestions).toHaveLength(2);
+		// Large should come first (higher coverage)
+		expect(result.suggestions[0]?.suggestedDirectory).toBe("src/large");
+		expect(result.suggestions[1]?.suggestedDirectory).toBe("src/small");
+	});
+
+	test("calculates coveragePercent correctly", () => {
+		const coveredFiles = [
+			"src/api/a.ts",
+			"src/api/b.ts",
+			"src/api/c.ts",
+			"src/other.ts",
+		];
+
+		const fileContents = new Map([
+			["src/api/a.ts", "a".repeat(100)], // 25 tokens
+			["src/api/b.ts", "a".repeat(100)], // 25 tokens
+			["src/api/c.ts", "a".repeat(100)], // 25 tokens
+			["src/other.ts", "a".repeat(100)], // 25 tokens
+		]);
+		// Total: 100 tokens, api: 75 tokens = 75%
+
+		const result = analyzeNodeForSplit(
+			"src/AGENTS.md",
+			"src",
+			coveredFiles,
+			fileContents,
+			10,
+			5,
+		);
+
+		const apiSuggestion = result.suggestions.find(
+			(s) => s.suggestedDirectory === "src/api",
+		);
+		expect(apiSuggestion?.coveragePercent).toBe(75);
+		expect(apiSuggestion?.coveredTokens).toBe(75);
+	});
+});
+
+describe("analyzeHierarchyForSplits", () => {
+	test("analyzes all nodes exceeding budget", () => {
+		// Create hierarchy budget result with one exceeding node
+		const hierarchyBudgetResult = {
+			nodeResults: new Map([
+				[
+					"AGENTS.md",
+					{
+						nodePath: "AGENTS.md",
+						nodeTokens: 10,
+						coveredCodeTokens: 100,
+						budgetPercent: 10,
+						exceedsBudget: true,
+						filesCounted: 6,
+						filesSkipped: 0,
+					},
+				],
+			]),
+			nodesExceedingBudget: [
+				{
+					nodePath: "AGENTS.md",
+					nodeTokens: 10,
+					coveredCodeTokens: 100,
+					budgetPercent: 10,
+					exceedsBudget: true,
+					filesCounted: 6,
+					filesSkipped: 0,
+				},
+			],
+			totalNodes: 1,
+			exceedingCount: 1,
+		};
+
+		const coveredFilesMap = new Map([
+			[
+				"AGENTS.md",
+				{
+					coveredFiles: [
+						"src/api/a.ts",
+						"src/api/b.ts",
+						"src/api/c.ts",
+						"src/utils/x.ts",
+						"src/utils/y.ts",
+						"src/utils/z.ts",
+					],
+				},
+			],
+		]);
+
+		const nodeDirectories = new Map([["AGENTS.md", ""]]);
+
+		const fileContents = new Map([
+			["src/api/a.ts", "a".repeat(100)],
+			["src/api/b.ts", "a".repeat(100)],
+			["src/api/c.ts", "a".repeat(100)],
+			["src/utils/x.ts", "a".repeat(100)],
+			["src/utils/y.ts", "a".repeat(100)],
+			["src/utils/z.ts", "a".repeat(100)],
+		]);
+
+		const result = analyzeHierarchyForSplits(
+			hierarchyBudgetResult,
+			coveredFilesMap,
+			nodeDirectories,
+			fileContents,
+			5,
+		);
+
+		expect(result.nodesToSplit).toContain("AGENTS.md");
+		expect(result.nodeAnalyses).toHaveLength(1);
+		expect(result.totalSuggestions).toBeGreaterThanOrEqual(1);
+	});
+
+	test("returns empty results when no nodes exceed budget", () => {
+		const hierarchyBudgetResult = {
+			nodeResults: new Map([
+				[
+					"AGENTS.md",
+					{
+						nodePath: "AGENTS.md",
+						nodeTokens: 2,
+						coveredCodeTokens: 100,
+						budgetPercent: 2,
+						exceedsBudget: false,
+						filesCounted: 3,
+						filesSkipped: 0,
+					},
+				],
+			]),
+			nodesExceedingBudget: [],
+			totalNodes: 1,
+			exceedingCount: 0,
+		};
+
+		const result = analyzeHierarchyForSplits(
+			hierarchyBudgetResult,
+			new Map(),
+			new Map(),
+			new Map(),
+			5,
+		);
+
+		expect(result.nodesToSplit).toHaveLength(0);
+		expect(result.nodeAnalyses).toHaveLength(0);
+		expect(result.totalSuggestions).toBe(0);
+	});
+
+	test("passes existingNodeDirectories to prevent duplicate suggestions", () => {
+		const hierarchyBudgetResult = {
+			nodeResults: new Map([
+				[
+					"AGENTS.md",
+					{
+						nodePath: "AGENTS.md",
+						nodeTokens: 10,
+						coveredCodeTokens: 100,
+						budgetPercent: 10,
+						exceedsBudget: true,
+						filesCounted: 3,
+						filesSkipped: 0,
+					},
+				],
+			]),
+			nodesExceedingBudget: [
+				{
+					nodePath: "AGENTS.md",
+					nodeTokens: 10,
+					coveredCodeTokens: 100,
+					budgetPercent: 10,
+					exceedsBudget: true,
+					filesCounted: 3,
+					filesSkipped: 0,
+				},
+			],
+			totalNodes: 1,
+			exceedingCount: 1,
+		};
+
+		const coveredFilesMap = new Map([
+			[
+				"AGENTS.md",
+				{
+					coveredFiles: ["src/api/a.ts", "src/api/b.ts", "src/api/c.ts"],
+				},
+			],
+		]);
+
+		const nodeDirectories = new Map([["AGENTS.md", ""]]);
+
+		const fileContents = new Map([
+			["src/api/a.ts", "a".repeat(100)],
+			["src/api/b.ts", "a".repeat(100)],
+			["src/api/c.ts", "a".repeat(100)],
+		]);
+
+		// src already has an intent node
+		const existingNodeDirectories = new Set(["src"]);
+
+		const result = analyzeHierarchyForSplits(
+			hierarchyBudgetResult,
+			coveredFilesMap,
+			nodeDirectories,
+			fileContents,
+			5,
+			existingNodeDirectories,
+		);
+
+		// No suggestions because src already has a node
+		expect(result.totalSuggestions).toBe(0);
+	});
+
+	test("uses CLAUDE.md when specified", () => {
+		const hierarchyBudgetResult = {
+			nodeResults: new Map([
+				[
+					"CLAUDE.md",
+					{
+						nodePath: "CLAUDE.md",
+						nodeTokens: 10,
+						coveredCodeTokens: 100,
+						budgetPercent: 10,
+						exceedsBudget: true,
+						filesCounted: 3,
+						filesSkipped: 0,
+					},
+				],
+			]),
+			nodesExceedingBudget: [
+				{
+					nodePath: "CLAUDE.md",
+					nodeTokens: 10,
+					coveredCodeTokens: 100,
+					budgetPercent: 10,
+					exceedsBudget: true,
+					filesCounted: 3,
+					filesSkipped: 0,
+				},
+			],
+			totalNodes: 1,
+			exceedingCount: 1,
+		};
+
+		const coveredFilesMap = new Map([
+			[
+				"CLAUDE.md",
+				{
+					coveredFiles: ["src/api/a.ts", "src/api/b.ts", "src/api/c.ts"],
+				},
+			],
+		]);
+
+		const nodeDirectories = new Map([["CLAUDE.md", ""]]);
+
+		const fileContents = new Map([
+			["src/api/a.ts", "a".repeat(100)],
+			["src/api/b.ts", "a".repeat(100)],
+			["src/api/c.ts", "a".repeat(100)],
+		]);
+
+		const result = analyzeHierarchyForSplits(
+			hierarchyBudgetResult,
+			coveredFilesMap,
+			nodeDirectories,
+			fileContents,
+			5,
+			new Set(),
+			{},
+			"CLAUDE.md",
+		);
+
+		if (result.nodeAnalyses[0]?.suggestions[0]) {
+			expect(result.nodeAnalyses[0].suggestions[0].suggestedNodePath).toContain(
+				"CLAUDE.md",
+			);
+		}
 	});
 });

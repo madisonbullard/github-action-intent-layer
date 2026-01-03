@@ -198,9 +198,9 @@ prompts:
 - [x] 5.2 Calculate "covered files" for each intent node (nearest parent, excludes `.intentlayerignore` files)
 - [x] 5.3 Calculate token count of covered code per node
 - [x] 5.4 Calculate current token budget usage per node
-- [ ] 5.5 Identify nodes exceeding budget threshold
-- [ ] 5.6 Identify nodes that should be split
-- [ ] 5.7 Write unit tests for token calculations
+- [x] 5.5 Identify nodes exceeding budget threshold
+- [x] 5.6 Identify nodes that should be split
+- [x] 5.7 Write unit tests for token calculations
 
 ### Phase 6: Change Analysis
 - [ ] 6.1 Map changed files to their covering intent nodes

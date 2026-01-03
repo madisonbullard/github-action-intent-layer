@@ -330,6 +330,36 @@ export interface HierarchyTokenBudgetResult {
 }
 
 /**
+ * A suggested split for a node that exceeds the budget threshold.
+ */
+export interface SplitSuggestion {
+	/** The directory path where a new intent node should be created */
+	suggestedDirectory: string;
+	/** Full path for the new intent file (e.g., "src/utils/AGENTS.md") */
+	suggestedNodePath: string;
+	/** Files that would be covered by the new node */
+	coveredFiles: string[];
+	/** Approximate token count of the files that would be covered */
+	coveredTokens: number;
+	/** Percentage of parent node's coverage this would absorb */
+	coveragePercent: number;
+}
+
+/**
+ * Result of analyzing a node for potential splits.
+ */
+export interface NodeSplitAnalysis {
+	/** Path to the intent node being analyzed */
+	nodePath: string;
+	/** Whether the node exceeds budget and should be split */
+	shouldSplit: boolean;
+	/** Current budget percentage */
+	budgetPercent: number;
+	/** Suggested directories to create new intent nodes */
+	suggestions: SplitSuggestion[];
+}
+
+/**
  * Calculate token budget usage for all nodes in a hierarchy.
  *
  * @param coveredFilesMap - Map of node path to covered files (from getCoveredFilesForHierarchy)
@@ -378,5 +408,249 @@ export function calculateHierarchyTokenBudget(
 		nodesExceedingBudget,
 		totalNodes: nodeResults.size,
 		exceedingCount: nodesExceedingBudget.length,
+	};
+}
+
+/**
+ * Get the directory portion of a file path.
+ *
+ * @param filePath - Full file path
+ * @returns Directory path (empty string for root-level files)
+ */
+function getDirectory(filePath: string): string {
+	const lastSlash = filePath.lastIndexOf("/");
+	return lastSlash === -1 ? "" : filePath.substring(0, lastSlash);
+}
+
+/**
+ * Get the immediate subdirectory relative to a parent directory.
+ *
+ * @param filePath - Full file path
+ * @param parentDir - Parent directory path
+ * @returns Immediate subdirectory name, or undefined if file is directly in parent
+ */
+function getImmediateSubdirectory(
+	filePath: string,
+	parentDir: string,
+): string | undefined {
+	const fileDir = getDirectory(filePath);
+
+	// If file is directly in parent directory, no subdirectory
+	if (fileDir === parentDir) {
+		return undefined;
+	}
+
+	// Get the relative path from parent
+	const relativePath =
+		parentDir === "" ? fileDir : fileDir.substring(parentDir.length + 1);
+
+	// Extract the first path segment
+	const firstSlash = relativePath.indexOf("/");
+	if (firstSlash === -1) {
+		return relativePath;
+	}
+	return relativePath.substring(0, firstSlash);
+}
+
+/**
+ * Minimum files in a subdirectory to suggest splitting.
+ * Subdirectories with fewer files are not worth splitting into separate nodes.
+ */
+const MIN_FILES_FOR_SPLIT = 3;
+
+/**
+ * Minimum percentage of coverage a subdirectory must have to suggest splitting.
+ * Avoids suggesting splits for very small subdirectories.
+ */
+const MIN_COVERAGE_PERCENT_FOR_SPLIT = 10;
+
+/**
+ * Analyze a node's covered files and suggest potential splits.
+ *
+ * A split is suggested when:
+ * 1. The node exceeds the budget threshold
+ * 2. There are subdirectories with substantial code coverage
+ * 3. The subdirectory doesn't already have an intent node
+ *
+ * @param nodePath - Path to the intent node
+ * @param nodeDirectory - Directory the node covers
+ * @param coveredFilePaths - Files covered by this node
+ * @param fileContents - Map of file path to content
+ * @param budgetPercent - Current budget percentage for the node
+ * @param budgetThresholdPercent - Budget threshold to determine if split is needed
+ * @param existingNodeDirectories - Set of directories that already have intent nodes
+ * @param options - Token counting options
+ * @param intentFileName - Name of intent files (default "AGENTS.md")
+ * @returns Analysis with split suggestions
+ */
+export function analyzeNodeForSplit(
+	nodePath: string,
+	nodeDirectory: string,
+	coveredFilePaths: string[],
+	fileContents: Map<string, string>,
+	budgetPercent: number,
+	budgetThresholdPercent = 5,
+	existingNodeDirectories: Set<string> = new Set(),
+	options: TokenCountOptions = {},
+	intentFileName = "AGENTS.md",
+): NodeSplitAnalysis {
+	const shouldSplit = budgetPercent > budgetThresholdPercent;
+
+	if (!shouldSplit) {
+		return {
+			nodePath,
+			shouldSplit: false,
+			budgetPercent,
+			suggestions: [],
+		};
+	}
+
+	// Group files by immediate subdirectory
+	const subdirFiles = new Map<string, string[]>();
+
+	for (const filePath of coveredFilePaths) {
+		const subdir = getImmediateSubdirectory(filePath, nodeDirectory);
+		if (subdir === undefined) {
+			// File is directly in node's directory, not in a subdirectory
+			continue;
+		}
+
+		const fullSubdirPath =
+			nodeDirectory === "" ? subdir : `${nodeDirectory}/${subdir}`;
+
+		// Skip if this subdirectory already has an intent node
+		if (existingNodeDirectories.has(fullSubdirPath)) {
+			continue;
+		}
+
+		const files = subdirFiles.get(fullSubdirPath) || [];
+		files.push(filePath);
+		subdirFiles.set(fullSubdirPath, files);
+	}
+
+	// Calculate total covered tokens for percentage calculation
+	const totalCoveredResult = calculateCoveredCodeTokens(
+		coveredFilePaths,
+		fileContents,
+		options,
+	);
+
+	// Analyze each subdirectory for potential split
+	const suggestions: SplitSuggestion[] = [];
+
+	for (const [subdirPath, files] of subdirFiles) {
+		// Skip subdirectories with too few files
+		if (files.length < MIN_FILES_FOR_SPLIT) {
+			continue;
+		}
+
+		// Calculate tokens for this subdirectory
+		const subdirResult = calculateCoveredCodeTokens(
+			files,
+			fileContents,
+			options,
+		);
+
+		// Calculate coverage percentage
+		const coveragePercent =
+			totalCoveredResult.totalTokens > 0
+				? (subdirResult.totalTokens / totalCoveredResult.totalTokens) * 100
+				: 0;
+
+		// Skip if coverage is too small
+		if (coveragePercent < MIN_COVERAGE_PERCENT_FOR_SPLIT) {
+			continue;
+		}
+
+		suggestions.push({
+			suggestedDirectory: subdirPath,
+			suggestedNodePath: `${subdirPath}/${intentFileName}`,
+			coveredFiles: files,
+			coveredTokens: subdirResult.totalTokens,
+			coveragePercent,
+		});
+	}
+
+	// Sort suggestions by coverage percentage (highest first)
+	suggestions.sort((a, b) => b.coveragePercent - a.coveragePercent);
+
+	return {
+		nodePath,
+		shouldSplit,
+		budgetPercent,
+		suggestions,
+	};
+}
+
+/**
+ * Result of analyzing all nodes in a hierarchy for potential splits.
+ */
+export interface HierarchySplitAnalysis {
+	/** Split analysis for each node that exceeds budget */
+	nodeAnalyses: NodeSplitAnalysis[];
+	/** Total number of split suggestions across all nodes */
+	totalSuggestions: number;
+	/** Nodes that should be split */
+	nodesToSplit: string[];
+}
+
+/**
+ * Analyze all nodes in a hierarchy for potential splits.
+ *
+ * @param hierarchyBudgetResult - Result from calculateHierarchyTokenBudget
+ * @param coveredFilesMap - Map of node path to covered files
+ * @param nodeDirectories - Map of node path to its directory
+ * @param fileContents - Map of file path to content
+ * @param budgetThresholdPercent - Budget threshold
+ * @param existingNodeDirectories - Set of directories that already have intent nodes
+ * @param options - Token counting options
+ * @param intentFileName - Name of intent files (default "AGENTS.md")
+ * @returns Analysis with split suggestions for all nodes
+ */
+export function analyzeHierarchyForSplits(
+	hierarchyBudgetResult: HierarchyTokenBudgetResult,
+	coveredFilesMap: Map<string, { coveredFiles: string[] }>,
+	nodeDirectories: Map<string, string>,
+	fileContents: Map<string, string>,
+	budgetThresholdPercent = 5,
+	existingNodeDirectories: Set<string> = new Set(),
+	options: TokenCountOptions = {},
+	intentFileName = "AGENTS.md",
+): HierarchySplitAnalysis {
+	const nodeAnalyses: NodeSplitAnalysis[] = [];
+	const nodesToSplit: string[] = [];
+	let totalSuggestions = 0;
+
+	for (const nodeResult of hierarchyBudgetResult.nodesExceedingBudget) {
+		const coveredData = coveredFilesMap.get(nodeResult.nodePath);
+		const nodeDirectory = nodeDirectories.get(nodeResult.nodePath);
+
+		if (!coveredData || nodeDirectory === undefined) {
+			continue;
+		}
+
+		const analysis = analyzeNodeForSplit(
+			nodeResult.nodePath,
+			nodeDirectory,
+			coveredData.coveredFiles,
+			fileContents,
+			nodeResult.budgetPercent,
+			budgetThresholdPercent,
+			existingNodeDirectories,
+			options,
+			intentFileName,
+		);
+
+		if (analysis.shouldSplit) {
+			nodeAnalyses.push(analysis);
+			nodesToSplit.push(analysis.nodePath);
+			totalSuggestions += analysis.suggestions.length;
+		}
+	}
+
+	return {
+		nodeAnalyses,
+		totalSuggestions,
+		nodesToSplit,
 	};
 }
