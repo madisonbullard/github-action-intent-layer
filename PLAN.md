@@ -257,7 +257,7 @@ prompts:
 
 ### Phase 12: Edge Cases & Error Handling
 - [x] 12.1 Handle no intent layer exists → suggest creating root `AGENTS.md` only
-- [ ] 12.2 Handle symlink conflict → fail action with clear error message
+- [x] 12.2 Handle symlink conflict → fail action with clear error message
 - [ ] 12.3 Handle very large PRs: skip action entirely if PR exceeds 100k lines changed
 - [ ] 12.4 Handle API rate limits (retry with backoff)
 - [ ] 12.5 Handle model access errors → fail action with clear error message (no PR comment)
