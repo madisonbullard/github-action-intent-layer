@@ -172,9 +172,9 @@ describe("Integration: output new_pr mode", () => {
 		});
 
 		test("handles mixed create and update actions", async () => {
-			let fileCallCount = 0;
+			let _fileCallCount = 0;
 			const mockGetFileContent = mock(async (path: string) => {
-				fileCallCount++;
+				_fileCallCount++;
 				if (path === "AGENTS.md") {
 					// Root file exists - for update action
 					return {
@@ -291,7 +291,7 @@ describe("Integration: output new_pr mode", () => {
 			let capturedHead = "";
 			let capturedBase = "";
 			const mockCreatePullRequest = mock(
-				async (title: string, body: string, head: string, base: string) => {
+				async (title: string, _body: string, head: string, base: string) => {
 					capturedHead = head;
 					capturedBase = base;
 					return {

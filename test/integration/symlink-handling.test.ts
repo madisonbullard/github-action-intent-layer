@@ -134,30 +134,30 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 		expect(fixture.config.expectedBehavior?.symlinkSource).toBe("agents");
 		expect(fixture.config.expectedBehavior?.shouldDetectSymlink).toBe(true);
 		expect(fixture.config.expectedSymlinks).toHaveLength(1);
-		expect(fixture.config.expectedSymlinks[0]!.source).toBe("AGENTS.md");
-		expect(fixture.config.expectedSymlinks[0]!.target).toBe("CLAUDE.md");
+		expect(fixture.config.expectedSymlinks[0]?.source).toBe("AGENTS.md");
+		expect(fixture.config.expectedSymlinks[0]?.target).toBe("CLAUDE.md");
 	});
 
 	test("fixture tree has CLAUDE.md as symlink (mode 120000)", () => {
 		const claudeEntry = fixture.tree.tree.find((e) => e.path === "CLAUDE.md");
 		expect(claudeEntry).toBeDefined();
-		expect(claudeEntry!.mode).toBe("120000");
+		expect(claudeEntry?.mode).toBe("120000");
 
 		const agentsEntry = fixture.tree.tree.find((e) => e.path === "AGENTS.md");
 		expect(agentsEntry).toBeDefined();
-		expect(agentsEntry!.mode).toBe("100644");
+		expect(agentsEntry?.mode).toBe("100644");
 	});
 
 	test("symlink target points to AGENTS.md", () => {
 		const claudeEntry = fixture.tree.tree.find((e) => e.path === "CLAUDE.md");
 		expect(claudeEntry).toBeDefined();
-		const symlinkTarget = fixture.tree.symlinkTargets?.[claudeEntry!.sha];
+		const symlinkTarget = fixture.tree.symlinkTargets?.[claudeEntry?.sha];
 		expect(symlinkTarget).toBe("AGENTS.md");
 	});
 
 	test("createMockBlobResponse returns symlink target for symlinked file", () => {
 		const claudeEntry = fixture.tree.tree.find((e) => e.path === "CLAUDE.md");
-		const blobResponse = createMockBlobResponse(fixture, claudeEntry!.sha);
+		const blobResponse = createMockBlobResponse(fixture, claudeEntry?.sha);
 
 		const decodedContent = Buffer.from(
 			blobResponse.data.content,
@@ -171,14 +171,14 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 
 		// AGENTS.md should exist and NOT be a symlink
 		expect(detectionResult.agentsFiles).toHaveLength(1);
-		expect(detectionResult.agentsFiles[0]!.path).toBe("AGENTS.md");
-		expect(detectionResult.agentsFiles[0]!.isSymlink).toBe(false);
+		expect(detectionResult.agentsFiles[0]?.path).toBe("AGENTS.md");
+		expect(detectionResult.agentsFiles[0]?.isSymlink).toBe(false);
 
 		// CLAUDE.md should exist and BE a symlink
 		expect(detectionResult.claudeFiles).toHaveLength(1);
-		expect(detectionResult.claudeFiles[0]!.path).toBe("CLAUDE.md");
-		expect(detectionResult.claudeFiles[0]!.isSymlink).toBe(true);
-		expect(detectionResult.claudeFiles[0]!.symlinkTarget).toBe("AGENTS.md");
+		expect(detectionResult.claudeFiles[0]?.path).toBe("CLAUDE.md");
+		expect(detectionResult.claudeFiles[0]?.isSymlink).toBe(true);
+		expect(detectionResult.claudeFiles[0]?.symlinkTarget).toBe("AGENTS.md");
 	});
 
 	test("hasIntentLayer returns true", () => {
@@ -191,10 +191,10 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 		const relationships = detectSymlinkRelationships(detectionResult);
 
 		expect(relationships).toHaveLength(1);
-		expect(relationships[0]!.directory).toBe("");
-		expect(relationships[0]!.sourceType).toBe("agents");
-		expect(relationships[0]!.source.path).toBe("AGENTS.md");
-		expect(relationships[0]!.symlink.path).toBe("CLAUDE.md");
+		expect(relationships[0]?.directory).toBe("");
+		expect(relationships[0]?.sourceType).toBe("agents");
+		expect(relationships[0]?.source.path).toBe("AGENTS.md");
+		expect(relationships[0]?.symlink.path).toBe("CLAUDE.md");
 	});
 
 	test("validateSymlinkConfig passes with symlink enabled", () => {
@@ -211,8 +211,8 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 		const hierarchy = buildHierarchy(detectionResult.agentsFiles, "agents");
 
 		expect(hierarchy.roots).toHaveLength(1);
-		expect(hierarchy.roots[0]!.file.path).toBe("AGENTS.md");
-		expect(hierarchy.roots[0]!.file.isSymlink).toBe(false);
+		expect(hierarchy.roots[0]?.file.path).toBe("AGENTS.md");
+		expect(hierarchy.roots[0]?.file.isSymlink).toBe(false);
 	});
 
 	test("changed files map to the source file node", () => {
@@ -230,7 +230,7 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 
 		const coveringNode = findCoveringNode("src/index.ts", hierarchy);
 		expect(coveringNode).toBeDefined();
-		expect(coveringNode!.file.path).toBe("AGENTS.md");
+		expect(coveringNode?.file.path).toBe("AGENTS.md");
 	});
 
 	test("getNodesNeedingUpdate returns source node for updates", () => {
@@ -245,7 +245,7 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 
 		expect(result.hasUpdates).toBe(true);
 		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]!.node.file.path).toBe("AGENTS.md");
+		expect(result.candidates[0]?.node.file.path).toBe("AGENTS.md");
 	});
 });
 
@@ -260,30 +260,30 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 		expect(fixture.config.expectedBehavior?.symlinkSource).toBe("claude");
 		expect(fixture.config.expectedBehavior?.shouldDetectSymlink).toBe(true);
 		expect(fixture.config.expectedSymlinks).toHaveLength(1);
-		expect(fixture.config.expectedSymlinks[0]!.source).toBe("CLAUDE.md");
-		expect(fixture.config.expectedSymlinks[0]!.target).toBe("AGENTS.md");
+		expect(fixture.config.expectedSymlinks[0]?.source).toBe("CLAUDE.md");
+		expect(fixture.config.expectedSymlinks[0]?.target).toBe("AGENTS.md");
 	});
 
 	test("fixture tree has AGENTS.md as symlink (mode 120000)", () => {
 		const agentsEntry = fixture.tree.tree.find((e) => e.path === "AGENTS.md");
 		expect(agentsEntry).toBeDefined();
-		expect(agentsEntry!.mode).toBe("120000");
+		expect(agentsEntry?.mode).toBe("120000");
 
 		const claudeEntry = fixture.tree.tree.find((e) => e.path === "CLAUDE.md");
 		expect(claudeEntry).toBeDefined();
-		expect(claudeEntry!.mode).toBe("100644");
+		expect(claudeEntry?.mode).toBe("100644");
 	});
 
 	test("symlink target points to CLAUDE.md", () => {
 		const agentsEntry = fixture.tree.tree.find((e) => e.path === "AGENTS.md");
 		expect(agentsEntry).toBeDefined();
-		const symlinkTarget = fixture.tree.symlinkTargets?.[agentsEntry!.sha];
+		const symlinkTarget = fixture.tree.symlinkTargets?.[agentsEntry?.sha];
 		expect(symlinkTarget).toBe("CLAUDE.md");
 	});
 
 	test("createMockBlobResponse returns symlink target for symlinked file", () => {
 		const agentsEntry = fixture.tree.tree.find((e) => e.path === "AGENTS.md");
-		const blobResponse = createMockBlobResponse(fixture, agentsEntry!.sha);
+		const blobResponse = createMockBlobResponse(fixture, agentsEntry?.sha);
 
 		const decodedContent = Buffer.from(
 			blobResponse.data.content,
@@ -297,14 +297,14 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 
 		// CLAUDE.md should exist and NOT be a symlink
 		expect(detectionResult.claudeFiles).toHaveLength(1);
-		expect(detectionResult.claudeFiles[0]!.path).toBe("CLAUDE.md");
-		expect(detectionResult.claudeFiles[0]!.isSymlink).toBe(false);
+		expect(detectionResult.claudeFiles[0]?.path).toBe("CLAUDE.md");
+		expect(detectionResult.claudeFiles[0]?.isSymlink).toBe(false);
 
 		// AGENTS.md should exist and BE a symlink
 		expect(detectionResult.agentsFiles).toHaveLength(1);
-		expect(detectionResult.agentsFiles[0]!.path).toBe("AGENTS.md");
-		expect(detectionResult.agentsFiles[0]!.isSymlink).toBe(true);
-		expect(detectionResult.agentsFiles[0]!.symlinkTarget).toBe("CLAUDE.md");
+		expect(detectionResult.agentsFiles[0]?.path).toBe("AGENTS.md");
+		expect(detectionResult.agentsFiles[0]?.isSymlink).toBe(true);
+		expect(detectionResult.agentsFiles[0]?.symlinkTarget).toBe("CLAUDE.md");
 	});
 
 	test("hasIntentLayer returns true", () => {
@@ -317,10 +317,10 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 		const relationships = detectSymlinkRelationships(detectionResult);
 
 		expect(relationships).toHaveLength(1);
-		expect(relationships[0]!.directory).toBe("");
-		expect(relationships[0]!.sourceType).toBe("claude");
-		expect(relationships[0]!.source.path).toBe("CLAUDE.md");
-		expect(relationships[0]!.symlink.path).toBe("AGENTS.md");
+		expect(relationships[0]?.directory).toBe("");
+		expect(relationships[0]?.sourceType).toBe("claude");
+		expect(relationships[0]?.source.path).toBe("CLAUDE.md");
+		expect(relationships[0]?.symlink.path).toBe("AGENTS.md");
 	});
 
 	test("validateSymlinkConfig passes with symlink enabled", () => {
@@ -337,8 +337,8 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 		const hierarchy = buildHierarchy(detectionResult.claudeFiles, "claude");
 
 		expect(hierarchy.roots).toHaveLength(1);
-		expect(hierarchy.roots[0]!.file.path).toBe("CLAUDE.md");
-		expect(hierarchy.roots[0]!.file.isSymlink).toBe(false);
+		expect(hierarchy.roots[0]?.file.path).toBe("CLAUDE.md");
+		expect(hierarchy.roots[0]?.file.isSymlink).toBe(false);
 	});
 
 	test("changed files map to the source file node", () => {
@@ -356,7 +356,7 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 
 		const coveringNode = findCoveringNode("src/index.ts", hierarchy);
 		expect(coveringNode).toBeDefined();
-		expect(coveringNode!.file.path).toBe("CLAUDE.md");
+		expect(coveringNode?.file.path).toBe("CLAUDE.md");
 	});
 
 	test("getNodesNeedingUpdate returns source node for updates", () => {
@@ -371,7 +371,7 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 
 		expect(result.hasUpdates).toBe(true);
 		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]!.node.file.path).toBe("CLAUDE.md");
+		expect(result.candidates[0]?.node.file.path).toBe("CLAUDE.md");
 	});
 });
 
@@ -540,14 +540,14 @@ describe("Integration: full symlink workflow", () => {
 		// 2. Detect symlink relationships
 		const relationships = detectSymlinkRelationships(detectionResult);
 		expect(relationships).toHaveLength(1);
-		expect(relationships[0]!.sourceType).toBe("agents");
+		expect(relationships[0]?.sourceType).toBe("agents");
 
 		// 3. Validate symlink config
 		const validation = validateSymlinkConfig(detectionResult, true);
 		expect(validation.valid).toBe(true);
 
 		// 4. Determine source file type and build hierarchy
-		const sourceType = relationships[0]!.sourceType;
+		const sourceType = relationships[0]?.sourceType;
 		const sourceFiles =
 			sourceType === "agents"
 				? detectionResult.agentsFiles
@@ -555,7 +555,7 @@ describe("Integration: full symlink workflow", () => {
 		const hierarchy = buildHierarchy(sourceFiles, sourceType);
 
 		expect(hierarchy.roots).toHaveLength(1);
-		expect(hierarchy.roots[0]!.file.isSymlink).toBe(false);
+		expect(hierarchy.roots[0]?.file.isSymlink).toBe(false);
 
 		// 5. Map changed files
 		const diff = createDiff([
@@ -566,7 +566,7 @@ describe("Integration: full symlink workflow", () => {
 		const result = getNodesNeedingUpdate(diff, hierarchy);
 
 		expect(result.hasUpdates).toBe(true);
-		expect(result.candidates[0]!.node.file.path).toBe("AGENTS.md");
+		expect(result.candidates[0]?.node.file.path).toBe("AGENTS.md");
 	});
 
 	test("complete flow: detect -> validate -> build hierarchy -> map changes (claude source)", () => {
@@ -579,14 +579,14 @@ describe("Integration: full symlink workflow", () => {
 		// 2. Detect symlink relationships
 		const relationships = detectSymlinkRelationships(detectionResult);
 		expect(relationships).toHaveLength(1);
-		expect(relationships[0]!.sourceType).toBe("claude");
+		expect(relationships[0]?.sourceType).toBe("claude");
 
 		// 3. Validate symlink config
 		const validation = validateSymlinkConfig(detectionResult, true);
 		expect(validation.valid).toBe(true);
 
 		// 4. Determine source file type and build hierarchy
-		const sourceType = relationships[0]!.sourceType;
+		const sourceType = relationships[0]?.sourceType;
 		const sourceFiles =
 			sourceType === "agents"
 				? detectionResult.agentsFiles
@@ -594,7 +594,7 @@ describe("Integration: full symlink workflow", () => {
 		const hierarchy = buildHierarchy(sourceFiles, sourceType);
 
 		expect(hierarchy.roots).toHaveLength(1);
-		expect(hierarchy.roots[0]!.file.isSymlink).toBe(false);
+		expect(hierarchy.roots[0]?.file.isSymlink).toBe(false);
 
 		// 5. Map changed files
 		const diff = createDiff([
@@ -605,6 +605,6 @@ describe("Integration: full symlink workflow", () => {
 		const result = getNodesNeedingUpdate(diff, hierarchy);
 
 		expect(result.hasUpdates).toBe(true);
-		expect(result.candidates[0]!.node.file.path).toBe("CLAUDE.md");
+		expect(result.candidates[0]?.node.file.path).toBe("CLAUDE.md");
 	});
 });

@@ -139,9 +139,9 @@ describe("detectAgentsFiles", () => {
 
 		expect(result).toHaveLength(3);
 		// Should be sorted by depth (root first) then alphabetically
-		expect(result[0]!.path).toBe("AGENTS.md");
-		expect(result[1]!.path).toBe("src/AGENTS.md");
-		expect(result[2]!.path).toBe("packages/api/AGENTS.md");
+		expect(result[0]?.path).toBe("AGENTS.md");
+		expect(result[1]?.path).toBe("src/AGENTS.md");
+		expect(result[2]?.path).toBe("packages/api/AGENTS.md");
 	});
 
 	test("ignores directories named AGENTS.md", async () => {
@@ -154,7 +154,7 @@ describe("detectAgentsFiles", () => {
 		const result = await detectAgentsFiles(client, "main");
 
 		expect(result).toHaveLength(1);
-		expect(result[0]!.path).toBe("real/AGENTS.md");
+		expect(result[0]?.path).toBe("real/AGENTS.md");
 	});
 
 	test("ignores files with similar names", async () => {
@@ -169,7 +169,7 @@ describe("detectAgentsFiles", () => {
 		const result = await detectAgentsFiles(client, "main");
 
 		expect(result).toHaveLength(1);
-		expect(result[0]!.path).toBe("AGENTS.md");
+		expect(result[0]?.path).toBe("AGENTS.md");
 	});
 
 	test("detects symlinked AGENTS.md file", async () => {
@@ -212,8 +212,8 @@ describe("detectAgentsFiles", () => {
 		const result = await detectAgentsFiles(client, "main");
 
 		expect(result).toHaveLength(1);
-		expect(result[0]!.isSymlink).toBe(true);
-		expect(result[0]!.symlinkTarget).toBeUndefined();
+		expect(result[0]?.isSymlink).toBe(true);
+		expect(result[0]?.symlinkTarget).toBeUndefined();
 	});
 
 	test("uses default branch when ref not provided", async () => {
@@ -285,8 +285,8 @@ describe("detectClaudeFiles", () => {
 		const result = await detectClaudeFiles(client, "main");
 
 		expect(result).toHaveLength(2);
-		expect(result[0]!.path).toBe("CLAUDE.md");
-		expect(result[1]!.path).toBe("packages/core/CLAUDE.md");
+		expect(result[0]?.path).toBe("CLAUDE.md");
+		expect(result[1]?.path).toBe("packages/core/CLAUDE.md");
 	});
 });
 
@@ -399,7 +399,7 @@ describe("getRootIntentFile", () => {
 		const root = getRootIntentFile(files);
 
 		expect(root).toBeDefined();
-		expect(root!.path).toBe("AGENTS.md");
+		expect(root?.path).toBe("AGENTS.md");
 	});
 
 	test("handles root file among many nested files", () => {
@@ -423,7 +423,7 @@ describe("getRootIntentFile", () => {
 		const root = getRootIntentFile(files);
 
 		expect(root).toBeDefined();
-		expect(root!.sha).toBe("root-sha");
+		expect(root?.sha).toBe("root-sha");
 	});
 });
 
@@ -575,7 +575,7 @@ describe("detectSymlinkRelationships", () => {
 		const relationships = detectSymlinkRelationships(result);
 
 		expect(relationships).toHaveLength(1);
-		expect(relationships[0]!.sourceType).toBe("agents");
+		expect(relationships[0]?.sourceType).toBe("agents");
 	});
 
 	test("detects symlink relationships in nested directories", () => {
@@ -647,12 +647,12 @@ describe("detectSymlinkRelationships", () => {
 		expect(relationships).toHaveLength(2);
 
 		// Root level: AGENTS.md -> CLAUDE.md
-		expect(relationships[0]!.directory).toBe("");
-		expect(relationships[0]!.sourceType).toBe("claude");
+		expect(relationships[0]?.directory).toBe("");
+		expect(relationships[0]?.sourceType).toBe("claude");
 
 		// src level: CLAUDE.md -> AGENTS.md
-		expect(relationships[1]!.directory).toBe("src");
-		expect(relationships[1]!.sourceType).toBe("agents");
+		expect(relationships[1]?.directory).toBe("src");
+		expect(relationships[1]?.sourceType).toBe("agents");
 	});
 
 	test("ignores files in different directories", () => {

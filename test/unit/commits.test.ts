@@ -433,9 +433,9 @@ describe("createIntentAddCommit", () => {
 	});
 
 	test("does not create otherNodePath if it already exists", async () => {
-		let getFileCallCount = 0;
+		let _getFileCallCount = 0;
 		const mockGetFileContent = mock(async (path: string) => {
-			getFileCallCount++;
+			_getFileCallCount++;
 			if (path === "packages/api/AGENTS.md") {
 				const error = new Error("Not Found") as Error & { status: number };
 				error.status = 404;
@@ -648,9 +648,9 @@ describe("createIntentUpdateCommit", () => {
 	});
 
 	test("does not update otherNodePath if it does not exist", async () => {
-		let getFileCallCount = 0;
+		let _getFileCallCount = 0;
 		const mockGetFileContent = mock(async (path: string) => {
-			getFileCallCount++;
+			_getFileCallCount++;
 			if (path === "packages/api/AGENTS.md") {
 				return {
 					sha: "existingsha",
@@ -738,7 +738,7 @@ describe("createIntentRevertCommit", () => {
 		}));
 
 		// Track which files and refs are being requested
-		const mockGetFileContent = mock(async (path: string, ref?: string) => {
+		const mockGetFileContent = mock(async (_path: string, ref?: string) => {
 			if (ref === "parentsha123") {
 				// Return the previous content from the parent commit
 				return {
@@ -1478,7 +1478,7 @@ describe("applyUpdatesToBranch", () => {
 			throw error;
 		});
 
-		const mockCreateOrUpdateFile = mock(async (path: string) => ({
+		const mockCreateOrUpdateFile = mock(async (_path: string) => ({
 			commit: {
 				sha: `sha${++commitCount}`,
 				html_url: `https://github.com/commit/sha${commitCount}`,
@@ -1526,7 +1526,7 @@ describe("applyUpdatesToBranch", () => {
 			content: "SGVsbG8=",
 		}));
 
-		const mockCreateOrUpdateFile = mock(async (path: string) => ({
+		const mockCreateOrUpdateFile = mock(async (_path: string) => ({
 			commit: {
 				sha: `newsha${commitCount}`,
 				html_url: `https://github.com/commit/newsha${commitCount}`,
@@ -1566,9 +1566,9 @@ describe("applyUpdatesToBranch", () => {
 	});
 
 	test("handles mixed create and update actions", async () => {
-		let fileCallCount = 0;
+		let _fileCallCount = 0;
 		const mockGetFileContent = mock(async (path: string) => {
-			fileCallCount++;
+			_fileCallCount++;
 			if (path === "AGENTS.md") {
 				// Root file exists
 				return {
@@ -1623,9 +1623,9 @@ describe("applyUpdatesToBranch", () => {
 	});
 
 	test("continues on error when stopOnError is false", async () => {
-		let callCount = 0;
+		let _callCount = 0;
 		const mockGetFileContent = mock(async (path: string) => {
-			callCount++;
+			_callCount++;
 			if (path === "packages/failing/AGENTS.md") {
 				// First file doesn't exist for update (will fail)
 				const error = new Error("Not Found") as Error & { status: number };
@@ -1896,7 +1896,7 @@ describe("generateIntentLayerPRBody", () => {
 describe("openIntentLayerPullRequest", () => {
 	test("creates PR with default title and body", async () => {
 		const mockCreatePullRequest = mock(
-			async (title: string, body: string, head: string, base: string) => ({
+			async (title: string, _body: string, head: string, base: string) => ({
 				number: 99,
 				title,
 				html_url: "https://github.com/owner/repo/pull/99",

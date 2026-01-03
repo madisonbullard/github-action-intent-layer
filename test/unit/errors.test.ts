@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { ZodError, z } from "zod";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { z } from "zod";
 
 // Mock @actions/core before importing the module under test
 const mockSetFailed = mock(() => {});

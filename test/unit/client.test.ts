@@ -411,8 +411,8 @@ describe("GitHubClient API methods with mocked responses", () => {
 				per_page: 100,
 			});
 			expect(result).toHaveLength(2);
-			expect(result[0]!.filename).toBe("src/index.ts");
-			expect(result[1]!.status).toBe("added");
+			expect(result[0]?.filename).toBe("src/index.ts");
+			expect(result[1]?.status).toBe("added");
 		});
 	});
 
@@ -458,8 +458,8 @@ describe("GitHubClient API methods with mocked responses", () => {
 				per_page: 100,
 			});
 			expect(result).toHaveLength(1);
-			expect(result[0]!.sha).toBe("commit-sha-1");
-			expect(result[0]!.commit.message).toBe("feat: add new feature");
+			expect(result[0]?.sha).toBe("commit-sha-1");
+			expect(result[0]?.commit.message).toBe("feat: add new feature");
 		});
 	});
 
@@ -497,7 +497,7 @@ describe("GitHubClient API methods with mocked responses", () => {
 				per_page: 100,
 			});
 			expect(result).toHaveLength(2);
-			expect(result[0]!.body).toBe("Great PR!");
+			expect(result[0]?.body).toBe("Great PR!");
 		});
 	});
 
@@ -613,7 +613,7 @@ describe("GitHubClient API methods with mocked responses", () => {
 				per_page: 100,
 			});
 			expect(result).toHaveLength(1);
-			expect(result[0]!.body).toBe("Consider refactoring this");
+			expect(result[0]?.body).toBe("Consider refactoring this");
 		});
 	});
 
@@ -893,7 +893,7 @@ describe("GitHubClient error handling", () => {
 // Retry Logic Tests
 // ============================================================================
 
-import { type RetryConfig, withRetry } from "../../src/github/client";
+import { withRetry } from "../../src/github/client";
 
 describe("withRetry", () => {
 	describe("successful operations", () => {

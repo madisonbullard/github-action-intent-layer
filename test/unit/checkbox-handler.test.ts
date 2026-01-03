@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
 	DEFAULT_DEBOUNCE_DELAY_MS,
 	debounceCheckboxToggle,
@@ -853,7 +853,7 @@ ${suggestedContent}
 					parents: [{ sha: "parent-sha" }],
 				}),
 			),
-			getFileContent: mock((path: string, ref: string) => {
+			getFileContent: mock((_path: string, ref: string) => {
 				// Return content for parent commit (file existed before)
 				if (ref === "parent-sha") {
 					return Promise.resolve({
@@ -920,7 +920,7 @@ ${suggestedContent}
 					parents: [{ sha: "parent-sha" }],
 				}),
 			),
-			getFileContent: mock((path: string, ref: string) => {
+			getFileContent: mock((_path: string, ref: string) => {
 				// File didn't exist before the applied commit
 				if (ref === "parent-sha") {
 					const error = new Error("Not Found") as Error & { status: number };
@@ -1008,7 +1008,7 @@ ${suggestedContent}
 					parents: [{ sha: "parent-sha" }],
 				}),
 			),
-			getFileContent: mock((path: string, ref: string) => {
+			getFileContent: mock((path: string, _ref: string) => {
 				// Both files existed before
 				return Promise.resolve({
 					sha: `${path}-sha`,

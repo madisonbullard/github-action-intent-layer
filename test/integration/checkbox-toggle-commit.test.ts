@@ -107,7 +107,7 @@ function createMockClient(options: {
 		getComment: mock((commentId: number) =>
 			Promise.resolve({ id: commentId, body: options.getCommentBody ?? "" }),
 		),
-		getFileContent: mock((path: string, ref?: string) => {
+		getFileContent: mock((_path: string, _ref?: string) => {
 			if (options.fileExists) {
 				return Promise.resolve({
 					sha: "existing-file-sha",
@@ -121,7 +121,7 @@ function createMockClient(options: {
 			return Promise.reject(error);
 		}),
 		createOrUpdateFile: mock(
-			(path: string, content: string, message: string, branch: string) => {
+			(_path: string, _content: string, _message: string, _branch: string) => {
 				if (options.commitError) {
 					return Promise.reject(options.commitError);
 				}
@@ -742,8 +742,8 @@ describe("Integration: checkbox toggle → commit", () => {
 			// 4. Debounce check
 			const debounceResult = await debounceCheckboxToggle(
 				mockClient,
-				eventContext!.commentId,
-				eventContext!.commentBody,
+				eventContext?.commentId,
+				eventContext?.commentBody,
 				{ delayMs: 10 },
 			);
 
@@ -753,7 +753,7 @@ describe("Integration: checkbox toggle → commit", () => {
 			// 5. Handle the checked checkbox
 			const result = await handleCheckedCheckbox(
 				mockClient,
-				eventContext!.commentId,
+				eventContext?.commentId,
 				debounceResult.commentBody!,
 				debounceResult.markerData!,
 				headSha,

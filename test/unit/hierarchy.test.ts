@@ -17,8 +17,6 @@ import {
 	getDirectory,
 	getMaxDepth,
 	getNodeCount,
-	type IntentHierarchy,
-	type IntentNode,
 	isAncestorDirectory,
 	traversePostOrder,
 	traversePreOrder,
@@ -144,10 +142,10 @@ describe("buildHierarchy", () => {
 		const hierarchy = buildHierarchy(files, "agents");
 
 		expect(hierarchy.roots).toHaveLength(1);
-		expect(hierarchy.roots[0]!.file.path).toBe("AGENTS.md");
-		expect(hierarchy.roots[0]!.parent).toBeUndefined();
-		expect(hierarchy.roots[0]!.children).toHaveLength(0);
-		expect(hierarchy.roots[0]!.depth).toBe(0);
+		expect(hierarchy.roots[0]?.file.path).toBe("AGENTS.md");
+		expect(hierarchy.roots[0]?.parent).toBeUndefined();
+		expect(hierarchy.roots[0]?.children).toHaveLength(0);
+		expect(hierarchy.roots[0]?.depth).toBe(0);
 	});
 
 	test("builds parent-child relationship", () => {
@@ -201,8 +199,8 @@ describe("buildHierarchy", () => {
 		const hierarchy = buildHierarchy(files, "agents");
 
 		expect(hierarchy.roots).toHaveLength(2);
-		expect(hierarchy.roots[0]!.parent).toBeUndefined();
-		expect(hierarchy.roots[1]!.parent).toBeUndefined();
+		expect(hierarchy.roots[0]?.parent).toBeUndefined();
+		expect(hierarchy.roots[1]?.parent).toBeUndefined();
 	});
 
 	test("handles sibling directories correctly", () => {
@@ -295,7 +293,7 @@ describe("buildHierarchy", () => {
 		expect(packages.depth).toBe(1);
 		expect(api.depth).toBe(2);
 		expect(core.depth).toBe(2);
-		expect(hierarchy.nodesByPath.get("packages/api/src/AGENTS.md")!.depth).toBe(
+		expect(hierarchy.nodesByPath.get("packages/api/src/AGENTS.md")?.depth).toBe(
 			3,
 		);
 	});
@@ -343,7 +341,7 @@ describe("getAncestors", () => {
 
 		const ancestors = getAncestors(child);
 		expect(ancestors).toHaveLength(1);
-		expect(ancestors[0]!.file.path).toBe("AGENTS.md");
+		expect(ancestors[0]?.file.path).toBe("AGENTS.md");
 	});
 
 	test("returns all ancestors from child to root", () => {
@@ -357,8 +355,8 @@ describe("getAncestors", () => {
 
 		const ancestors = getAncestors(deepNode);
 		expect(ancestors).toHaveLength(2);
-		expect(ancestors[0]!.file.path).toBe("packages/AGENTS.md"); // immediate parent
-		expect(ancestors[1]!.file.path).toBe("AGENTS.md"); // root
+		expect(ancestors[0]?.file.path).toBe("packages/AGENTS.md"); // immediate parent
+		expect(ancestors[1]?.file.path).toBe("AGENTS.md"); // root
 	});
 });
 
@@ -381,7 +379,7 @@ describe("getDescendants", () => {
 
 		const descendants = getDescendants(root);
 		expect(descendants).toHaveLength(1);
-		expect(descendants[0]!.file.path).toBe("src/AGENTS.md");
+		expect(descendants[0]?.file.path).toBe("src/AGENTS.md");
 	});
 
 	test("returns all descendants", () => {

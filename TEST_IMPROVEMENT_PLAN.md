@@ -51,7 +51,8 @@ The existing `ci.yml` has:
     - Testing `listFixtures()` returns all fixtures
     - Testing `loadFixture("no-intent-layer")` works correctly
     - Testing `shouldSuggestRootAgentsMd()` returns true for repos without intent layer
-- [ ] Audit remaining tests for any dead code or unused fixtures
+- [x] Audit remaining tests for any dead code or unused fixtures
+  - **Result:** All fixtures in use. Removed unused imports and prefixed unused function parameters with underscores using `bunx biome check --write`. Fixed 9 unused imports and 27 unused function parameters across 17 test files.
 
 ### Expected Outcome
 - Remove ~1,370 lines of redundant test code

@@ -219,7 +219,7 @@ describe("Integration: token budget enforcement with binary/large file skipping"
 			const fileContents = new Map([
 				["src/index.ts", "a".repeat(400)], // 100 tokens
 				["src/utils.ts", "a".repeat(400)], // 100 tokens
-				["assets/image.png", "PNG\0\0\0" + "x".repeat(10000)], // Binary - skipped
+				["assets/image.png", `PNG\0\0\0${"x".repeat(10000)}`], // Binary - skipped
 			]);
 
 			const result = calculateNodeTokenBudget(
@@ -274,7 +274,7 @@ describe("Integration: token budget enforcement with binary/large file skipping"
 		test("calculates budget for hierarchy with binary files excluded", () => {
 			// Set up a simple hierarchy with one root AGENTS.md
 			const intentFiles = [createIntentFile("AGENTS.md")];
-			const hierarchy = buildHierarchy(intentFiles, "agents");
+			const _hierarchy = buildHierarchy(intentFiles, "agents");
 
 			// Define covered files including binary
 			const coveredFilesMap = new Map([
@@ -330,7 +330,7 @@ describe("Integration: token budget enforcement with binary/large file skipping"
 
 			const fileContents = new Map([
 				["src/small.ts", "a".repeat(400)], // 100 tokens
-				["src/binary.bin", "data\0data" + "x".repeat(10000)], // Binary (would be huge if counted)
+				["src/binary.bin", `data\0data${"x".repeat(10000)}`], // Binary (would be huge if counted)
 			]);
 
 			// Without skip options, binary would be counted and budget would be low
@@ -367,7 +367,7 @@ describe("Integration: token budget enforcement with binary/large file skipping"
 				["src/code.ts", "a".repeat(400)], // 100 tokens
 				// If binary was counted, budget would be (2 / (100 + huge)) which is tiny
 				// Since binary is skipped, budget = 2/100 = 2%
-				["assets/huge-binary.bin", "\0" + "x".repeat(100000)],
+				["assets/huge-binary.bin", `\0${"x".repeat(100000)}`],
 			]);
 
 			const result = calculateHierarchyTokenBudget(
@@ -571,7 +571,7 @@ describe("Integration: token budget enforcement with binary/large file skipping"
 
 		test("binary check takes precedence over size check", () => {
 			// Content that is both binary AND large
-			const content = "\0" + "a\n".repeat(20000);
+			const content = `\0${"a\n".repeat(20000)}`;
 
 			const result = countTokensWithOptions(content, {
 				skipBinaryFiles: true,

@@ -422,25 +422,25 @@ describe("extractPRCommits", () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.sha).toBe("6dcb09b5b57875f334f61aebed695e2e4193db5e");
-		expect(commits[1]!.sha).toBe("abc456def789");
+		expect(commits[0]?.sha).toBe("6dcb09b5b57875f334f61aebed695e2e4193db5e");
+		expect(commits[1]?.sha).toBe("abc456def789");
 	});
 
 	test("extracts commit message correctly", async () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.message).toBe(
+		expect(commits[0]?.message).toBe(
 			"feat: add new feature\n\nThis adds an amazing new feature.",
 		);
-		expect(commits[1]!.message).toBe("fix: resolve bug in feature");
+		expect(commits[1]?.message).toBe("fix: resolve bug in feature");
 	});
 
 	test("extracts git author information correctly", async () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.author).toEqual({
+		expect(commits[0]?.author).toEqual({
 			name: "Monalisa Octocat",
 			email: "support@github.com",
 			date: "2024-01-14T16:00:49Z",
@@ -451,7 +451,7 @@ describe("extractPRCommits", () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.committer).toEqual({
+		expect(commits[0]?.committer).toEqual({
 			name: "Monalisa Octocat",
 			email: "support@github.com",
 			date: "2024-01-14T16:00:49Z",
@@ -462,7 +462,7 @@ describe("extractPRCommits", () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.gitHubAuthor).toEqual({
+		expect(commits[0]?.gitHubAuthor).toEqual({
 			login: "octocat",
 			id: 1,
 			avatarUrl: "https://github.com/images/error/octocat_happy.gif",
@@ -490,8 +490,8 @@ describe("extractPRCommits", () => {
 		const client = createMockCommitClient(botCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.gitHubAuthor?.isBot).toBe(true);
-		expect(commits[0]!.gitHubAuthor?.login).toBe("dependabot[bot]");
+		expect(commits[0]?.gitHubAuthor?.isBot).toBe(true);
+		expect(commits[0]?.gitHubAuthor?.login).toBe("dependabot[bot]");
 	});
 
 	test("handles null GitHub author gracefully", async () => {
@@ -511,7 +511,7 @@ describe("extractPRCommits", () => {
 		);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.gitHubAuthor).toBeNull();
+		expect(commits[0]?.gitHubAuthor).toBeNull();
 	});
 
 	test("handles null GitHub committer gracefully", async () => {
@@ -531,14 +531,14 @@ describe("extractPRCommits", () => {
 		);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.gitHubCommitter).toBeNull();
+		expect(commits[0]?.gitHubCommitter).toBeNull();
 	});
 
 	test("extracts commit URL correctly", async () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.url).toBe(
+		expect(commits[0]?.url).toBe(
 			"https://github.com/owner/repo/commit/6dcb09b5b57875f334f61aebed695e2e4193db5e",
 		);
 	});
@@ -547,16 +547,16 @@ describe("extractPRCommits", () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.commentCount).toBe(2);
-		expect(commits[1]!.commentCount).toBe(0);
+		expect(commits[0]?.commentCount).toBe(2);
+		expect(commits[1]?.commentCount).toBe(0);
 	});
 
 	test("extracts parent SHAs correctly", async () => {
 		const client = createMockCommitClient(sampleCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.parentShas).toEqual(["abc123parent"]);
-		expect(commits[1]!.parentShas).toEqual([
+		expect(commits[0]?.parentShas).toEqual(["abc123parent"]);
+		expect(commits[1]?.parentShas).toEqual([
 			"6dcb09b5b57875f334f61aebed695e2e4193db5e",
 		]);
 	});
@@ -576,7 +576,7 @@ describe("extractPRCommits", () => {
 		const client = createMockCommitClient(mergeCommitData);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.parentShas).toEqual(["parent1", "parent2"]);
+		expect(commits[0]?.parentShas).toEqual(["parent1", "parent2"]);
 	});
 
 	test("handles empty commits list", async () => {
@@ -608,7 +608,7 @@ describe("extractPRCommits", () => {
 		);
 		const commits = await extractPRCommits(client, 42);
 
-		expect(commits[0]!.author).toEqual({
+		expect(commits[0]?.author).toEqual({
 			name: "unknown",
 			email: "",
 			date: "",
@@ -703,24 +703,24 @@ describe("parseLinkedIssues", () => {
 		const issues = parseLinkedIssues("closes #456");
 
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.number).toBe(456);
-		expect(issues[0]!.keyword).toBe("closes");
+		expect(issues[0]?.number).toBe(456);
+		expect(issues[0]?.keyword).toBe("closes");
 	});
 
 	test("parses 'RESOLVES #789' format (uppercase)", () => {
 		const issues = parseLinkedIssues("RESOLVES #789");
 
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.number).toBe(789);
-		expect(issues[0]!.keyword).toBe("resolves");
+		expect(issues[0]?.number).toBe(789);
+		expect(issues[0]?.keyword).toBe("resolves");
 	});
 
 	test("parses keyword with colon 'Closes: #100'", () => {
 		const issues = parseLinkedIssues("Closes: #100");
 
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.number).toBe(100);
-		expect(issues[0]!.keyword).toBe("closes");
+		expect(issues[0]?.number).toBe(100);
+		expect(issues[0]?.keyword).toBe("closes");
 	});
 
 	test("parses cross-repo reference 'Fixes owner/repo#123'", () => {
@@ -752,7 +752,7 @@ describe("parseLinkedIssues", () => {
 		for (const keyword of keywords) {
 			const issues = parseLinkedIssues(`${keyword} #1`);
 			expect(issues).toHaveLength(1);
-			expect(issues[0]!.keyword).toBe(keyword);
+			expect(issues[0]?.keyword).toBe(keyword);
 		}
 	});
 
@@ -761,11 +761,11 @@ describe("parseLinkedIssues", () => {
 		const issues = parseLinkedIssues(text);
 
 		expect(issues).toHaveLength(3);
-		expect(issues[0]!.number).toBe(123);
-		expect(issues[1]!.number).toBe(456);
-		expect(issues[2]!.number).toBe(789);
-		expect(issues[2]!.owner).toBe("owner");
-		expect(issues[2]!.repo).toBe("repo");
+		expect(issues[0]?.number).toBe(123);
+		expect(issues[1]?.number).toBe(456);
+		expect(issues[2]?.number).toBe(789);
+		expect(issues[2]?.owner).toBe("owner");
+		expect(issues[2]?.repo).toBe("repo");
 	});
 
 	test("parses issues from multi-line text", () => {
@@ -777,8 +777,8 @@ Also resolves #456 which was related.`;
 		const issues = parseLinkedIssues(text);
 
 		expect(issues).toHaveLength(2);
-		expect(issues[0]!.number).toBe(123);
-		expect(issues[1]!.number).toBe(456);
+		expect(issues[0]?.number).toBe(123);
+		expect(issues[1]?.number).toBe(456);
 	});
 
 	test("returns empty array for null/empty text", () => {
@@ -805,15 +805,15 @@ Also resolves #456 which was related.`;
 		const issues = parseLinkedIssues("Fixes my_org/my.repo-name#42");
 
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.owner).toBe("my_org");
-		expect(issues[0]!.repo).toBe("my.repo-name");
+		expect(issues[0]?.owner).toBe("my_org");
+		expect(issues[0]?.repo).toBe("my.repo-name");
 	});
 
 	test("handles multiple spaces after keyword", () => {
 		const issues = parseLinkedIssues("Fixes  #123");
 
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.number).toBe(123);
+		expect(issues[0]?.number).toBe(123);
 	});
 });
 
@@ -842,8 +842,8 @@ describe("extractLinkedIssues", () => {
 		const issues = await extractLinkedIssues(client, 42);
 
 		expect(issues).toHaveLength(2);
-		expect(issues[0]!.number).toBe(123);
-		expect(issues[1]!.number).toBe(456);
+		expect(issues[0]?.number).toBe(123);
+		expect(issues[1]?.number).toBe(456);
 	});
 
 	test("extracts linked issues from commit messages", async () => {
@@ -851,14 +851,14 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]!.commit,
+					...sampleCommitData[0]?.commit,
 					message: "feat: add feature\n\nFixes #100",
 				},
 			},
 			{
 				...sampleCommitData[1]!,
 				commit: {
-					...sampleCommitData[1]!.commit,
+					...sampleCommitData[1]?.commit,
 					message: "fix: resolve bug\n\nCloses #200",
 				},
 			},
@@ -868,8 +868,8 @@ describe("extractLinkedIssues", () => {
 		const issues = await extractLinkedIssues(client, 42);
 
 		expect(issues).toHaveLength(2);
-		expect(issues[0]!.number).toBe(100);
-		expect(issues[1]!.number).toBe(200);
+		expect(issues[0]?.number).toBe(100);
+		expect(issues[1]?.number).toBe(200);
 	});
 
 	test("combines issues from PR description and commits", async () => {
@@ -877,7 +877,7 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]!.commit,
+					...sampleCommitData[0]?.commit,
 					message: "fix: resolve\n\nFixes #200",
 				},
 			},
@@ -887,8 +887,8 @@ describe("extractLinkedIssues", () => {
 		const issues = await extractLinkedIssues(client, 42);
 
 		expect(issues).toHaveLength(2);
-		expect(issues[0]!.number).toBe(100);
-		expect(issues[1]!.number).toBe(200);
+		expect(issues[0]?.number).toBe(100);
+		expect(issues[1]?.number).toBe(200);
 	});
 
 	test("deduplicates linked issues", async () => {
@@ -896,14 +896,14 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]!.commit,
+					...sampleCommitData[0]?.commit,
 					message: "feat: add feature\n\nFixes #123",
 				},
 			},
 			{
 				...sampleCommitData[1]!,
 				commit: {
-					...sampleCommitData[1]!.commit,
+					...sampleCommitData[1]?.commit,
 					message: "fix: tweak feature\n\nFixes #123",
 				},
 			},
@@ -914,7 +914,7 @@ describe("extractLinkedIssues", () => {
 
 		// Same issue referenced 3 times, should only appear once
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.number).toBe(123);
+		expect(issues[0]?.number).toBe(123);
 	});
 
 	test("keeps cross-repo issues separate from same-repo issues", async () => {
@@ -927,8 +927,8 @@ describe("extractLinkedIssues", () => {
 
 		// Same issue number but different repos = different issues
 		expect(issues).toHaveLength(2);
-		expect(issues[0]!.owner).toBeNull();
-		expect(issues[1]!.owner).toBe("owner");
+		expect(issues[0]?.owner).toBeNull();
+		expect(issues[1]?.owner).toBe("owner");
 	});
 
 	test("returns empty array when no linked issues found", async () => {
@@ -940,7 +940,7 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]!.commit,
+					...sampleCommitData[0]?.commit,
 					message: "feat: add something",
 				},
 			},
@@ -957,7 +957,7 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]!.commit,
+					...sampleCommitData[0]?.commit,
 					message: "Fixes #42",
 				},
 			},
@@ -966,7 +966,7 @@ describe("extractLinkedIssues", () => {
 		const issues = await extractLinkedIssues(client, 42);
 
 		expect(issues).toHaveLength(1);
-		expect(issues[0]!.number).toBe(42);
+		expect(issues[0]?.number).toBe(42);
 	});
 });
 
@@ -978,7 +978,7 @@ describe("extractLinkedIssuesFromContext", () => {
 
 		expect(issues).not.toBeNull();
 		expect(issues).toHaveLength(1);
-		expect(issues![0]!.number).toBe(123);
+		expect(issues?.[0]?.number).toBe(123);
 	});
 
 	test("returns null when not in PR context", async () => {
@@ -1157,24 +1157,24 @@ describe("extractPRReviewComments", () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.id).toBe(10);
-		expect(comments[1]!.id).toBe(11);
+		expect(comments[0]?.id).toBe(10);
+		expect(comments[1]?.id).toBe(11);
 	});
 
 	test("extracts pull request review ID correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.pullRequestReviewId).toBe(42);
-		expect(comments[1]!.pullRequestReviewId).toBe(43);
+		expect(comments[0]?.pullRequestReviewId).toBe(42);
+		expect(comments[1]?.pullRequestReviewId).toBe(43);
 	});
 
 	test("extracts comment body correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.body).toBe("Great stuff!");
-		expect(comments[1]!.body).toBe(
+		expect(comments[0]?.body).toBe("Great stuff!");
+		expect(comments[1]?.body).toBe(
 			"Consider using a more descriptive variable name here.",
 		);
 	});
@@ -1183,7 +1183,7 @@ describe("extractPRReviewComments", () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.diffHunk).toBe(
+		expect(comments[0]?.diffHunk).toBe(
 			"@@ -16,33 +16,40 @@ public class Connection : IConnection...",
 		);
 	});
@@ -1192,28 +1192,28 @@ describe("extractPRReviewComments", () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.path).toBe("file1.txt");
-		expect(comments[1]!.path).toBe("src/index.ts");
+		expect(comments[0]?.path).toBe("file1.txt");
+		expect(comments[1]?.path).toBe("src/index.ts");
 	});
 
 	test("extracts position information correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.position).toBe(1);
-		expect(comments[0]!.originalPosition).toBe(4);
-		expect(comments[1]!.position).toBe(5);
-		expect(comments[1]!.originalPosition).toBe(3);
+		expect(comments[0]?.position).toBe(1);
+		expect(comments[0]?.originalPosition).toBe(4);
+		expect(comments[1]?.position).toBe(5);
+		expect(comments[1]?.originalPosition).toBe(3);
 	});
 
 	test("extracts commit IDs correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.commitId).toBe(
+		expect(comments[0]?.commitId).toBe(
 			"6dcb09b5b57875f334f61aebed695e2e4193db5e",
 		);
-		expect(comments[0]!.originalCommitId).toBe(
+		expect(comments[0]?.originalCommitId).toBe(
 			"9c48853fa3dc5c1c3d6f1f1cd1f2743e72652840",
 		);
 	});
@@ -1222,21 +1222,21 @@ describe("extractPRReviewComments", () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.inReplyToId).toBe(8);
-		expect(comments[1]!.inReplyToId).toBeNull();
+		expect(comments[0]?.inReplyToId).toBe(8);
+		expect(comments[1]?.inReplyToId).toBeNull();
 	});
 
 	test("extracts author information correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.author).toEqual({
+		expect(comments[0]?.author).toEqual({
 			login: "octocat",
 			id: 1,
 			avatarUrl: "https://github.com/images/error/octocat_happy.gif",
 			isBot: false,
 		});
-		expect(comments[1]!.author).toEqual({
+		expect(comments[1]?.author).toEqual({
 			login: "reviewer",
 			id: 2,
 			avatarUrl: "https://github.com/images/reviewer.gif",
@@ -1249,7 +1249,7 @@ describe("extractPRReviewComments", () => {
 			{
 				...sampleReviewCommentData[0]!,
 				user: {
-					...sampleReviewCommentData[0]!.user,
+					...sampleReviewCommentData[0]?.user,
 					login: "dependabot[bot]",
 					type: "Bot",
 				},
@@ -1258,23 +1258,23 @@ describe("extractPRReviewComments", () => {
 		const client = createMockReviewCommentClient(botCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.author.isBot).toBe(true);
-		expect(comments[0]!.author.login).toBe("dependabot[bot]");
+		expect(comments[0]?.author.isBot).toBe(true);
+		expect(comments[0]?.author.login).toBe("dependabot[bot]");
 	});
 
 	test("extracts author association correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.authorAssociation).toBe("COLLABORATOR");
-		expect(comments[1]!.authorAssociation).toBe("MEMBER");
+		expect(comments[0]?.authorAssociation).toBe("COLLABORATOR");
+		expect(comments[1]?.authorAssociation).toBe("MEMBER");
 	});
 
 	test("extracts URLs correctly", async () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.url).toBe(
+		expect(comments[0]?.url).toBe(
 			"https://github.com/octocat/Hello-World/pull/1#discussion-diff-1",
 		);
 	});
@@ -1283,10 +1283,10 @@ describe("extractPRReviewComments", () => {
 		const client = createMockReviewCommentClient(sampleReviewCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.createdAt).toBe("2011-04-14T16:00:49Z");
-		expect(comments[0]!.updatedAt).toBe("2011-04-14T16:00:49Z");
-		expect(comments[1]!.createdAt).toBe("2024-01-15T10:30:00Z");
-		expect(comments[1]!.updatedAt).toBe("2024-01-15T11:00:00Z");
+		expect(comments[0]?.createdAt).toBe("2011-04-14T16:00:49Z");
+		expect(comments[0]?.updatedAt).toBe("2011-04-14T16:00:49Z");
+		expect(comments[1]?.createdAt).toBe("2024-01-15T10:30:00Z");
+		expect(comments[1]?.updatedAt).toBe("2024-01-15T11:00:00Z");
 	});
 
 	test("extracts multi-line comment info correctly", async () => {
@@ -1294,20 +1294,20 @@ describe("extractPRReviewComments", () => {
 		const comments = await extractPRReviewComments(client, 42);
 
 		// First comment has multi-line info
-		expect(comments[0]!.startLine).toBe(1);
-		expect(comments[0]!.originalStartLine).toBe(1);
-		expect(comments[0]!.startSide).toBe("RIGHT");
-		expect(comments[0]!.line).toBe(2);
-		expect(comments[0]!.originalLine).toBe(2);
-		expect(comments[0]!.side).toBe("RIGHT");
+		expect(comments[0]?.startLine).toBe(1);
+		expect(comments[0]?.originalStartLine).toBe(1);
+		expect(comments[0]?.startSide).toBe("RIGHT");
+		expect(comments[0]?.line).toBe(2);
+		expect(comments[0]?.originalLine).toBe(2);
+		expect(comments[0]?.side).toBe("RIGHT");
 
 		// Second comment is single-line (no start_line)
-		expect(comments[1]!.startLine).toBeNull();
-		expect(comments[1]!.originalStartLine).toBeNull();
-		expect(comments[1]!.startSide).toBeNull();
-		expect(comments[1]!.line).toBe(5);
-		expect(comments[1]!.originalLine).toBe(3);
-		expect(comments[1]!.side).toBe("LEFT");
+		expect(comments[1]?.startLine).toBeNull();
+		expect(comments[1]?.originalStartLine).toBeNull();
+		expect(comments[1]?.startSide).toBeNull();
+		expect(comments[1]?.line).toBe(5);
+		expect(comments[1]?.originalLine).toBe(3);
+		expect(comments[1]?.side).toBe("LEFT");
 	});
 
 	test("handles empty comments list", async () => {
@@ -1329,9 +1329,9 @@ describe("extractPRReviewComments", () => {
 		);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.author.login).toBe("unknown");
-		expect(comments[0]!.author.id).toBe(0);
-		expect(comments[0]!.author.avatarUrl).toBe("");
+		expect(comments[0]?.author.login).toBe("unknown");
+		expect(comments[0]?.author.id).toBe(0);
+		expect(comments[0]?.author.avatarUrl).toBe("");
 	});
 
 	test("handles null pull_request_review_id gracefully", async () => {
@@ -1346,7 +1346,7 @@ describe("extractPRReviewComments", () => {
 		);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.pullRequestReviewId).toBeNull();
+		expect(comments[0]?.pullRequestReviewId).toBeNull();
 	});
 
 	test("handles outdated comment with null position", async () => {
@@ -1361,7 +1361,7 @@ describe("extractPRReviewComments", () => {
 		);
 		const comments = await extractPRReviewComments(client, 42);
 
-		expect(comments[0]!.position).toBeNull();
+		expect(comments[0]?.position).toBeNull();
 	});
 
 	test("calls getPullRequestReviewComments with correct pull number", async () => {
@@ -1549,52 +1549,52 @@ describe("extractPRDiff", () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.sha).toBe("bbcd538c8e72b8c175046e27cc8f907076331401");
+		expect(diff.files[0]?.sha).toBe("bbcd538c8e72b8c175046e27cc8f907076331401");
 	});
 
 	test("extracts filename correctly", async () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.filename).toBe("src/index.ts");
-		expect(diff.files[1]!.filename).toBe("README.md");
-		expect(diff.files[2]!.filename).toBe("old-file.ts");
+		expect(diff.files[0]?.filename).toBe("src/index.ts");
+		expect(diff.files[1]?.filename).toBe("README.md");
+		expect(diff.files[2]?.filename).toBe("old-file.ts");
 	});
 
 	test("extracts file status correctly", async () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.status).toBe("added");
-		expect(diff.files[1]!.status).toBe("modified");
-		expect(diff.files[2]!.status).toBe("removed");
-		expect(diff.files[3]!.status).toBe("renamed");
+		expect(diff.files[0]?.status).toBe("added");
+		expect(diff.files[1]?.status).toBe("modified");
+		expect(diff.files[2]?.status).toBe("removed");
+		expect(diff.files[3]?.status).toBe("renamed");
 	});
 
 	test("extracts additions and deletions correctly", async () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.additions).toBe(103);
-		expect(diff.files[0]!.deletions).toBe(0);
-		expect(diff.files[0]!.changes).toBe(103);
+		expect(diff.files[0]?.additions).toBe(103);
+		expect(diff.files[0]?.deletions).toBe(0);
+		expect(diff.files[0]?.changes).toBe(103);
 
-		expect(diff.files[1]!.additions).toBe(10);
-		expect(diff.files[1]!.deletions).toBe(5);
-		expect(diff.files[1]!.changes).toBe(15);
+		expect(diff.files[1]?.additions).toBe(10);
+		expect(diff.files[1]?.deletions).toBe(5);
+		expect(diff.files[1]?.changes).toBe(15);
 	});
 
 	test("extracts URLs correctly", async () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.blobUrl).toBe(
+		expect(diff.files[0]?.blobUrl).toBe(
 			"https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/index.ts",
 		);
-		expect(diff.files[0]!.rawUrl).toBe(
+		expect(diff.files[0]?.rawUrl).toBe(
 			"https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src/index.ts",
 		);
-		expect(diff.files[0]!.contentsUrl).toBe(
+		expect(diff.files[0]?.contentsUrl).toBe(
 			"https://api.github.com/repos/octocat/Hello-World/contents/src/index.ts?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
 		);
 	});
@@ -1603,7 +1603,7 @@ describe("extractPRDiff", () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.patch).toBe(
+		expect(diff.files[0]?.patch).toBe(
 			"@@ -0,0 +1,103 @@ export function main() {\n+  console.log('Hello World');\n+}",
 		);
 	});
@@ -1612,8 +1612,8 @@ describe("extractPRDiff", () => {
 		const client = createMockDiffClient(sampleFilesData);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[3]!.previousFilename).toBe("src/helper.ts");
-		expect(diff.files[0]!.previousFilename).toBeNull();
+		expect(diff.files[3]?.previousFilename).toBe("src/helper.ts");
+		expect(diff.files[0]?.previousFilename).toBeNull();
 	});
 
 	test("calculates summary statistics correctly", async () => {
@@ -1665,7 +1665,7 @@ describe("extractPRDiff", () => {
 		);
 		const diff = await extractPRDiff(client, 42);
 
-		expect(diff.files[0]!.patch).toBeNull();
+		expect(diff.files[0]?.patch).toBeNull();
 	});
 
 	test("handles missing previous_filename for non-renamed files", async () => {
@@ -1673,9 +1673,9 @@ describe("extractPRDiff", () => {
 		const diff = await extractPRDiff(client, 42);
 
 		// First 3 files are not renamed
-		expect(diff.files[0]!.previousFilename).toBeNull();
-		expect(diff.files[1]!.previousFilename).toBeNull();
-		expect(diff.files[2]!.previousFilename).toBeNull();
+		expect(diff.files[0]?.previousFilename).toBeNull();
+		expect(diff.files[1]?.previousFilename).toBeNull();
+		expect(diff.files[2]?.previousFilename).toBeNull();
 	});
 
 	test("does not fetch raw diff by default", async () => {

@@ -193,7 +193,7 @@ describe("mapChangedFilesToNodes", () => {
 
 		expect(result.byNode.has(UNCOVERED_KEY)).toBe(true);
 		expect(result.byNode.get(UNCOVERED_KEY)).toHaveLength(1);
-		expect(result.byNode.get(UNCOVERED_KEY)![0]!.file.filename).toBe(
+		expect(result.byNode.get(UNCOVERED_KEY)?.[0]?.file.filename).toBe(
 			"src/index.ts",
 		);
 		expect(result.summary.uncoveredFiles).toBe(1);
@@ -616,8 +616,8 @@ describe("determineNodesNeedingUpdate", () => {
 
 		expect(result.hasUpdates).toBe(true);
 		expect(result.totalNodes).toBe(1);
-		expect(result.candidates[0]!.changedFiles).toHaveLength(1);
-		expect(result.candidates[0]!.changedFiles[0]!.file.filename).toBe(
+		expect(result.candidates[0]?.changedFiles).toHaveLength(1);
+		expect(result.candidates[0]?.changedFiles[0]?.file.filename).toBe(
 			"src/index.ts",
 		);
 	});
@@ -636,7 +636,7 @@ describe("determineNodesNeedingUpdate", () => {
 		const result = determineNodesNeedingUpdate(mapping);
 
 		expect(result.candidates).toHaveLength(1);
-		const summary = result.candidates[0]!.changeSummary;
+		const summary = result.candidates[0]?.changeSummary;
 		expect(summary.filesAdded).toBe(1);
 		expect(summary.filesModified).toBe(1);
 		expect(summary.filesRemoved).toBe(1);
@@ -662,7 +662,7 @@ describe("determineNodesNeedingUpdate", () => {
 
 		// Only packages/api/AGENTS.md should be identified, not parents
 		expect(result.totalNodes).toBe(1);
-		expect(result.candidates[0]!.node.file.path).toBe("packages/api/AGENTS.md");
+		expect(result.candidates[0]?.node.file.path).toBe("packages/api/AGENTS.md");
 	});
 
 	test("handles multiple nodes with changes correctly", () => {
@@ -911,9 +911,9 @@ describe("determineNodesNeedingUpdate - updateReason", () => {
 		const result = determineNodesNeedingUpdate(mapping);
 
 		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]!.updateReason).toBeDefined();
-		expect(result.candidates[0]!.updateReason).toContain("1 file added");
-		expect(result.candidates[0]!.updateReason).toContain("1 file modified");
+		expect(result.candidates[0]?.updateReason).toBeDefined();
+		expect(result.candidates[0]?.updateReason).toContain("1 file added");
+		expect(result.candidates[0]?.updateReason).toContain("1 file modified");
 	});
 
 	test("updateReason reflects significant changes", () => {
@@ -926,8 +926,8 @@ describe("determineNodesNeedingUpdate - updateReason", () => {
 
 		const result = determineNodesNeedingUpdate(mapping);
 
-		expect(result.candidates[0]!.updateReason).toContain("significant");
-		expect(result.candidates[0]!.updateReason).toContain("100 lines added");
+		expect(result.candidates[0]?.updateReason).toContain("significant");
+		expect(result.candidates[0]?.updateReason).toContain("100 lines added");
 	});
 });
 
@@ -1280,9 +1280,9 @@ describe("identifySemanticBoundaries", () => {
 
 		expect(result.hasCandidates).toBe(true);
 		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]!.directory).toBe("src");
-		expect(result.candidates[0]!.suggestedNodePath).toBe("src/AGENTS.md");
-		expect(result.candidates[0]!.uncoveredFiles).toHaveLength(3);
+		expect(result.candidates[0]?.directory).toBe("src");
+		expect(result.candidates[0]?.suggestedNodePath).toBe("src/AGENTS.md");
+		expect(result.candidates[0]?.uncoveredFiles).toHaveLength(3);
 	});
 
 	test("respects minimum file threshold (needs 3+ files)", () => {
@@ -1328,7 +1328,7 @@ describe("identifySemanticBoundaries", () => {
 
 		const result = identifySemanticBoundaries(mapping, true, "claude");
 
-		expect(result.candidates[0]!.suggestedNodePath).toBe("src/CLAUDE.md");
+		expect(result.candidates[0]?.suggestedNodePath).toBe("src/CLAUDE.md");
 	});
 
 	test("excludes ignored files from candidates", () => {
@@ -1374,7 +1374,7 @@ describe("identifySemanticBoundaries", () => {
 		expect(result.hasCandidates).toBe(true);
 		expect(result.candidates.length).toBeGreaterThanOrEqual(2);
 		// packages/api should be first due to more files + package boundary
-		expect(result.candidates[0]!.directory).toBe("packages/api");
+		expect(result.candidates[0]?.directory).toBe("packages/api");
 	});
 
 	test("boosts confidence for standard directory names", () => {
@@ -1401,8 +1401,8 @@ describe("identifySemanticBoundaries", () => {
 
 		expect(componentsCandidate).toBeDefined();
 		expect(customCandidate).toBeDefined();
-		expect(componentsCandidate!.confidence).toBeGreaterThan(
-			customCandidate!.confidence,
+		expect(componentsCandidate?.confidence).toBeGreaterThan(
+			customCandidate?.confidence,
 		);
 	});
 
@@ -1418,9 +1418,9 @@ describe("identifySemanticBoundaries", () => {
 
 		const result = identifySemanticBoundaries(mapping, true, "agents");
 
-		expect(result.candidates[0]!.reason).toContain("3 uncovered files");
-		expect(result.candidates[0]!.reason).toContain("3 new file(s) added");
-		expect(result.candidates[0]!.reason).toContain(
+		expect(result.candidates[0]?.reason).toContain("3 uncovered files");
+		expect(result.candidates[0]?.reason).toContain("3 new file(s) added");
+		expect(result.candidates[0]?.reason).toContain(
 			"represents a package/module boundary",
 		);
 	});
@@ -1436,10 +1436,10 @@ describe("identifySemanticBoundaries", () => {
 
 		const result = identifySemanticBoundaries(mapping, true, "agents");
 
-		expect(result.candidates[0]!.changeSummary.filesAdded).toBe(1);
-		expect(result.candidates[0]!.changeSummary.filesModified).toBe(2);
-		expect(result.candidates[0]!.changeSummary.totalAdditions).toBe(150);
-		expect(result.candidates[0]!.changeSummary.totalDeletions).toBe(25);
+		expect(result.candidates[0]?.changeSummary.filesAdded).toBe(1);
+		expect(result.candidates[0]?.changeSummary.filesModified).toBe(2);
+		expect(result.candidates[0]?.changeSummary.totalAdditions).toBe(150);
+		expect(result.candidates[0]?.changeSummary.totalDeletions).toBe(25);
 	});
 
 	test("handles multiple directories with candidates", () => {
@@ -1491,8 +1491,8 @@ describe("identifySemanticBoundaries", () => {
 
 		if (result.hasCandidates) {
 			// Root directory candidate
-			expect(result.candidates[0]!.directory).toBe("");
-			expect(result.candidates[0]!.suggestedNodePath).toBe("AGENTS.md");
+			expect(result.candidates[0]?.directory).toBe("");
+			expect(result.candidates[0]?.suggestedNodePath).toBe("AGENTS.md");
 		}
 	});
 });
@@ -1603,8 +1603,8 @@ describe("filterSemanticBoundariesForInitialization", () => {
 
 		// Should only have root candidate
 		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]!.directory).toBe("");
-		expect(result.candidates[0]!.suggestedNodePath).toBe("AGENTS.md");
+		expect(result.candidates[0]?.directory).toBe("");
+		expect(result.candidates[0]?.suggestedNodePath).toBe("AGENTS.md");
 	});
 
 	test("creates root candidate when only subdirectory candidates exist", () => {
@@ -1635,11 +1635,11 @@ describe("filterSemanticBoundariesForInitialization", () => {
 
 		// Should create a root candidate aggregating all files
 		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]!.directory).toBe("");
-		expect(result.candidates[0]!.suggestedNodePath).toBe("AGENTS.md");
-		expect(result.candidates[0]!.uncoveredFiles).toHaveLength(6);
-		expect(result.candidates[0]!.confidence).toBe(1.0);
-		expect(result.candidates[0]!.reason).toContain("Initialize intent layer");
+		expect(result.candidates[0]?.directory).toBe("");
+		expect(result.candidates[0]?.suggestedNodePath).toBe("AGENTS.md");
+		expect(result.candidates[0]?.uncoveredFiles).toHaveLength(6);
+		expect(result.candidates[0]?.confidence).toBe(1.0);
+		expect(result.candidates[0]?.reason).toContain("Initialize intent layer");
 	});
 
 	test("uses CLAUDE.md when fileType is claude", () => {
@@ -1657,7 +1657,7 @@ describe("filterSemanticBoundariesForInitialization", () => {
 			"claude",
 		);
 
-		expect(result.candidates[0]!.suggestedNodePath).toBe("CLAUDE.md");
+		expect(result.candidates[0]?.suggestedNodePath).toBe("CLAUDE.md");
 	});
 
 	test("calculates correct change summary for aggregated files", () => {
@@ -1678,11 +1678,11 @@ describe("filterSemanticBoundariesForInitialization", () => {
 			"agents",
 		);
 
-		expect(result.candidates[0]!.changeSummary.filesAdded).toBe(3);
-		expect(result.candidates[0]!.changeSummary.filesModified).toBe(2);
-		expect(result.candidates[0]!.changeSummary.filesRemoved).toBe(1);
-		expect(result.candidates[0]!.changeSummary.totalAdditions).toBe(200);
-		expect(result.candidates[0]!.changeSummary.totalDeletions).toBe(80);
+		expect(result.candidates[0]?.changeSummary.filesAdded).toBe(3);
+		expect(result.candidates[0]?.changeSummary.filesModified).toBe(2);
+		expect(result.candidates[0]?.changeSummary.filesRemoved).toBe(1);
+		expect(result.candidates[0]?.changeSummary.totalAdditions).toBe(200);
+		expect(result.candidates[0]?.changeSummary.totalDeletions).toBe(80);
 	});
 
 	test("preserves root candidate properties when root exists", () => {

@@ -18,7 +18,6 @@ import type { GitHubClient } from "../../src/github/client";
 import {
 	INTENT_LAYER_MARKER_PREFIX,
 	INTENT_LAYER_MARKER_SUFFIX,
-	isCheckboxChecked,
 	parseCommentMarker,
 } from "../../src/github/comments";
 
@@ -105,7 +104,7 @@ function createMockClient(options: {
 		getComment: mock((commentId: number) =>
 			Promise.resolve({ id: commentId, body: options.getCommentBody ?? "" }),
 		),
-		getFileContent: mock((path: string, ref?: string) => {
+		getFileContent: mock((_path: string, ref?: string) => {
 			// If querying the parent commit for file content (for revert)
 			if (ref === parentCommitSha) {
 				if (options.parentFileContent === null) {
@@ -143,11 +142,11 @@ function createMockClient(options: {
 		}),
 		createOrUpdateFile: mock(
 			(
-				path: string,
-				content: string,
-				message: string,
-				branch: string,
-				sha?: string,
+				_path: string,
+				_content: string,
+				_message: string,
+				_branch: string,
+				_sha?: string,
 			) => {
 				if (options.commitError) {
 					return Promise.reject(options.commitError);
@@ -161,7 +160,7 @@ function createMockClient(options: {
 			},
 		),
 		deleteFile: mock(
-			(path: string, message: string, branch: string, sha: string) => {
+			(_path: string, _message: string, _branch: string, _sha: string) => {
 				if (options.commitError) {
 					return Promise.reject(options.commitError);
 				}
@@ -466,7 +465,7 @@ describe("Integration: checkbox untoggle → revert", () => {
 						parents: [{ sha: "parent-sha" }],
 					}),
 				),
-				getFileContent: mock((path: string, ref?: string) => {
+				getFileContent: mock((path: string, _ref?: string) => {
 					// Return content for both files
 					return Promise.resolve({
 						sha: `sha-for-${path}`,
@@ -474,7 +473,7 @@ describe("Integration: checkbox untoggle → revert", () => {
 					});
 				}),
 				createOrUpdateFile: mock(
-					(path: string, content: string, message: string, branch: string) => {
+					(path: string, content: string, message: string, _branch: string) => {
 						createOrUpdateCalls.push({ path, content, message });
 						return Promise.resolve({
 							commit: {
@@ -623,7 +622,7 @@ describe("Integration: checkbox untoggle → revert", () => {
 				action: "update",
 			});
 
-			const eventPayload = {
+			const _eventPayload = {
 				action: "edited",
 				comment: {
 					id: 999,
@@ -647,7 +646,7 @@ describe("Integration: checkbox untoggle → revert", () => {
 						parents: [{ sha: "parent-commit-sha" }],
 					}),
 				),
-				getFileContent: mock((path: string, ref?: string) => {
+				getFileContent: mock((_path: string, ref?: string) => {
 					if (ref === "parent-commit-sha") {
 						// Return original content from before the intent change
 						return Promise.resolve({
