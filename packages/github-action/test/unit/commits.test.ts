@@ -2,9 +2,11 @@ import { describe, expect, mock, test } from "bun:test";
 import type { GitHubClient } from "../../src/github/client";
 import {
 	createIntentAddCommit,
+	createIntentLayerBranch,
 	createIntentRevertCommit,
 	createIntentUpdateCommit,
 	generateAddCommitMessage,
+	generateIntentLayerBranchName,
 	generateRevertCommitMessage,
 	generateUpdateCommitMessage,
 	getCommitPrefix,
@@ -1386,5 +1388,78 @@ describe("createIntentUpdateCommit with symlink", () => {
 		// Should update AGENTS.md (the source), even though nodePath is CLAUDE.md
 		expect(updatedPath).toBe("packages/api/AGENTS.md");
 		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("generateIntentLayerBranchName", () => {
+	test("generates branch name with PR number", () => {
+		const branchName = generateIntentLayerBranchName(42);
+		expect(branchName).toBe("intent-layer/42");
+	});
+
+	test("handles large PR numbers", () => {
+		const branchName = generateIntentLayerBranchName(99999);
+		expect(branchName).toBe("intent-layer/99999");
+	});
+
+	test("handles PR number 1", () => {
+		const branchName = generateIntentLayerBranchName(1);
+		expect(branchName).toBe("intent-layer/1");
+	});
+});
+
+describe("createIntentLayerBranch", () => {
+	test("creates branch with correct name and returns result", async () => {
+		const mockCreateBranch = mock(async (branchName: string, sha: string) => ({
+			ref: `refs/heads/${branchName}`,
+			object: { sha, type: "commit" },
+		}));
+
+		const client = {
+			createBranch: mockCreateBranch,
+		} as unknown as GitHubClient;
+
+		const result = await createIntentLayerBranch(client, 42, "base-sha-123abc");
+
+		expect(result.branchName).toBe("intent-layer/42");
+		expect(result.sha).toBe("base-sha-123abc");
+		expect(result.ref).toBe("refs/heads/intent-layer/42");
+		expect(mockCreateBranch).toHaveBeenCalledWith(
+			"intent-layer/42",
+			"base-sha-123abc",
+		);
+	});
+
+	test("propagates error when branch creation fails", async () => {
+		const mockCreateBranch = mock(async () => {
+			throw new Error("Reference already exists");
+		});
+
+		const client = {
+			createBranch: mockCreateBranch,
+		} as unknown as GitHubClient;
+
+		await expect(
+			createIntentLayerBranch(client, 42, "base-sha-123"),
+		).rejects.toThrow("Reference already exists");
+	});
+
+	test("uses the provided base SHA for the new branch", async () => {
+		let capturedSha = "";
+		const mockCreateBranch = mock(async (_branchName: string, sha: string) => {
+			capturedSha = sha;
+			return {
+				ref: "refs/heads/intent-layer/100",
+				object: { sha, type: "commit" },
+			};
+		});
+
+		const client = {
+			createBranch: mockCreateBranch,
+		} as unknown as GitHubClient;
+
+		await createIntentLayerBranch(client, 100, "specific-sha-456def");
+
+		expect(capturedSha).toBe("specific-sha-456def");
 	});
 });

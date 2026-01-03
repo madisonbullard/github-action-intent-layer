@@ -593,6 +593,57 @@ async function getFileContentAtCommit(
  * @returns Result of the commit operation
  * @throws Error if the appliedCommit cannot be found or has no parent
  */
+/**
+ * Result of creating an intent layer branch.
+ */
+export interface IntentLayerBranchResult {
+	/** Name of the created branch */
+	branchName: string;
+	/** SHA of the commit the branch points to */
+	sha: string;
+	/** Full ref path (refs/heads/...) */
+	ref: string;
+}
+
+/**
+ * Generate the branch name for an intent layer PR.
+ *
+ * @param prNumber - The pull request number
+ * @returns Branch name in the format `intent-layer/<pr-number>`
+ */
+export function generateIntentLayerBranchName(prNumber: number): string {
+	return `intent-layer/${prNumber}`;
+}
+
+/**
+ * Create a separate branch for intent layer updates.
+ *
+ * This is used by `output: new_pr` mode to create a branch
+ * that will contain all intent layer changes, which is then
+ * used as the head of a new PR targeting the original PR's branch.
+ *
+ * @param client - GitHub client for API operations
+ * @param prNumber - The pull request number (used in branch name)
+ * @param baseSha - The SHA to base the new branch on (typically the PR's head SHA)
+ * @returns Result containing the branch name and ref info
+ * @throws Error if the branch already exists or creation fails
+ */
+export async function createIntentLayerBranch(
+	client: GitHubClient,
+	prNumber: number,
+	baseSha: string,
+): Promise<IntentLayerBranchResult> {
+	const branchName = generateIntentLayerBranchName(prNumber);
+
+	const refData = await client.createBranch(branchName, baseSha);
+
+	return {
+		branchName,
+		sha: refData.object.sha,
+		ref: refData.ref,
+	};
+}
+
 export async function createIntentRevertCommit(
 	client: GitHubClient,
 	options: RevertCommitOptions,
