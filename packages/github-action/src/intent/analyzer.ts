@@ -10,6 +10,7 @@ import type { IntentLayerIgnore } from "../patterns/ignore";
 import {
 	findCoveringNode,
 	getAncestors,
+	getDirectory,
 	type IntentHierarchy,
 	type IntentNode,
 } from "./hierarchy";
@@ -637,4 +638,322 @@ function determineParentRecommendation(
 		recommendUpdate: false,
 		recommendationReason: noUpdateReason,
 	};
+}
+
+/**
+ * Represents a potential new semantic boundary - a directory that could
+ * benefit from having its own intent node (AGENTS.md/CLAUDE.md).
+ */
+export interface SemanticBoundaryCandidate {
+	/** Directory path where the new intent node could be created */
+	directory: string;
+	/** Suggested path for the new intent file (e.g., "packages/api/AGENTS.md") */
+	suggestedNodePath: string;
+	/** Uncovered files in this directory that triggered the suggestion */
+	uncoveredFiles: ChangedFileCoverage[];
+	/** Summary of changes in this boundary */
+	changeSummary: NodeChangeSummary;
+	/** Why this directory is a good candidate for a new node */
+	reason: string;
+	/** Confidence score for this suggestion (0-1) */
+	confidence: number;
+}
+
+/**
+ * Result of identifying potential semantic boundaries.
+ */
+export interface SemanticBoundaryResult {
+	/** Potential new semantic boundaries, ordered by confidence */
+	candidates: SemanticBoundaryCandidate[];
+	/** Total number of candidates identified */
+	totalCandidates: number;
+	/** Whether any candidates were identified */
+	hasCandidates: boolean;
+	/** Whether new nodes are allowed based on config */
+	newNodesAllowed: boolean;
+}
+
+/**
+ * Thresholds for identifying semantic boundaries.
+ * These are conservative to avoid suggesting too many new nodes.
+ */
+const BOUNDARY_THRESHOLDS = {
+	/** Minimum files in a directory to suggest a new node */
+	MIN_FILES_FOR_NODE: 3,
+	/** Minimum total changes (additions + deletions) to suggest a new node */
+	MIN_CHANGES_FOR_NODE: 50,
+	/** Confidence boost for directories with "standard" names */
+	STANDARD_DIR_CONFIDENCE_BOOST: 0.2,
+	/** Confidence boost for directories at common package boundaries */
+	PACKAGE_BOUNDARY_CONFIDENCE_BOOST: 0.15,
+	/** Base confidence for any candidate */
+	BASE_CONFIDENCE: 0.3,
+	/** Confidence boost per additional file (capped) */
+	PER_FILE_CONFIDENCE_BOOST: 0.05,
+	/** Maximum confidence from file count */
+	MAX_FILE_COUNT_CONFIDENCE: 0.3,
+};
+
+/**
+ * Directory names that commonly represent semantic boundaries.
+ * These get a confidence boost when identified as candidates.
+ */
+const STANDARD_BOUNDARY_DIRS = new Set([
+	"src",
+	"lib",
+	"packages",
+	"apps",
+	"services",
+	"components",
+	"modules",
+	"api",
+	"web",
+	"core",
+	"utils",
+	"shared",
+	"common",
+	"features",
+	"pages",
+	"routes",
+	"handlers",
+	"controllers",
+	"models",
+	"views",
+	"tests",
+	"test",
+	"__tests__",
+	"spec",
+	"e2e",
+	"integration",
+]);
+
+/**
+ * Identify potential new semantic boundaries in uncovered changed files.
+ *
+ * This function analyzes files that are not covered by any existing intent node
+ * and identifies directories that might benefit from having their own node.
+ * It respects the `new_nodes` configuration - if set to false, the function
+ * returns an empty result.
+ *
+ * A semantic boundary is suggested when:
+ * - Multiple files in the same directory are uncovered
+ * - The changes are significant enough to warrant dedicated documentation
+ * - The directory represents a logical boundary (packages, features, etc.)
+ *
+ * @param mapping - The result of mapping changed files to nodes
+ * @param newNodesAllowed - Whether new node creation is allowed (from config)
+ * @param fileType - The type of intent file to suggest ('agents' or 'claude')
+ * @returns Potential semantic boundaries for new intent nodes
+ */
+export function identifySemanticBoundaries(
+	mapping: ChangedFilesMappingResult,
+	newNodesAllowed: boolean,
+	fileType: "agents" | "claude" = "agents",
+): SemanticBoundaryResult {
+	// If new nodes are not allowed, return empty result immediately
+	if (!newNodesAllowed) {
+		return {
+			candidates: [],
+			totalCandidates: 0,
+			hasCandidates: false,
+			newNodesAllowed: false,
+		};
+	}
+
+	// Get uncovered, non-ignored files
+	const uncoveredFiles = getUncoveredChangedFiles(mapping).filter(
+		(f) => !f.isIgnored,
+	);
+
+	if (uncoveredFiles.length === 0) {
+		return {
+			candidates: [],
+			totalCandidates: 0,
+			hasCandidates: false,
+			newNodesAllowed: true,
+		};
+	}
+
+	// Group uncovered files by directory
+	const filesByDirectory = groupFilesByDirectory(uncoveredFiles);
+
+	// Build candidates for directories with enough files
+	const candidates: SemanticBoundaryCandidate[] = [];
+
+	for (const [directory, files] of filesByDirectory) {
+		// Skip if not enough files in this directory
+		if (files.length < BOUNDARY_THRESHOLDS.MIN_FILES_FOR_NODE) {
+			continue;
+		}
+
+		const changeSummary = calculateChangeSummary(files);
+		const totalChanges =
+			changeSummary.totalAdditions + changeSummary.totalDeletions;
+
+		// Skip if changes are too minimal
+		if (totalChanges < BOUNDARY_THRESHOLDS.MIN_CHANGES_FOR_NODE) {
+			continue;
+		}
+
+		// Calculate confidence score
+		const confidence = calculateBoundaryConfidence(
+			directory,
+			files,
+			changeSummary,
+		);
+
+		// Generate the suggested node path
+		const intentFileName = fileType === "agents" ? "AGENTS.md" : "CLAUDE.md";
+		const suggestedNodePath = directory
+			? `${directory}/${intentFileName}`
+			: intentFileName;
+
+		// Generate reason
+		const reason = generateBoundaryReason(directory, files, changeSummary);
+
+		candidates.push({
+			directory,
+			suggestedNodePath,
+			uncoveredFiles: files,
+			changeSummary,
+			reason,
+			confidence,
+		});
+	}
+
+	// Sort by confidence descending, then by path
+	candidates.sort((a, b) => {
+		if (Math.abs(a.confidence - b.confidence) > 0.01) {
+			return b.confidence - a.confidence;
+		}
+		return a.directory.localeCompare(b.directory);
+	});
+
+	return {
+		candidates,
+		totalCandidates: candidates.length,
+		hasCandidates: candidates.length > 0,
+		newNodesAllowed: true,
+	};
+}
+
+/**
+ * Group files by their directory path.
+ * Files in subdirectories are grouped into the most specific common directory.
+ */
+function groupFilesByDirectory(
+	files: ChangedFileCoverage[],
+): Map<string, ChangedFileCoverage[]> {
+	const byDirectory = new Map<string, ChangedFileCoverage[]>();
+
+	for (const file of files) {
+		const directory = getDirectory(file.file.filename);
+
+		if (!byDirectory.has(directory)) {
+			byDirectory.set(directory, []);
+		}
+		byDirectory.get(directory)!.push(file);
+	}
+
+	return byDirectory;
+}
+
+/**
+ * Calculate confidence score for a semantic boundary candidate.
+ */
+function calculateBoundaryConfidence(
+	directory: string,
+	files: ChangedFileCoverage[],
+	changeSummary: NodeChangeSummary,
+): number {
+	let confidence = BOUNDARY_THRESHOLDS.BASE_CONFIDENCE;
+
+	// Boost for file count (capped)
+	const fileCountBoost = Math.min(
+		(files.length - BOUNDARY_THRESHOLDS.MIN_FILES_FOR_NODE) *
+			BOUNDARY_THRESHOLDS.PER_FILE_CONFIDENCE_BOOST,
+		BOUNDARY_THRESHOLDS.MAX_FILE_COUNT_CONFIDENCE,
+	);
+	confidence += fileCountBoost;
+
+	// Boost for standard directory names
+	const dirName = directory.split("/").pop() || directory;
+	if (STANDARD_BOUNDARY_DIRS.has(dirName.toLowerCase())) {
+		confidence += BOUNDARY_THRESHOLDS.STANDARD_DIR_CONFIDENCE_BOOST;
+	}
+
+	// Boost for package boundary patterns (e.g., packages/*, apps/*)
+	if (isPackageBoundary(directory)) {
+		confidence += BOUNDARY_THRESHOLDS.PACKAGE_BOUNDARY_CONFIDENCE_BOOST;
+	}
+
+	// Boost for structural changes (new files being added suggests new semantic area)
+	if (changeSummary.filesAdded >= 2) {
+		confidence += 0.1;
+	}
+
+	// Cap confidence at 1.0
+	return Math.min(confidence, 1.0);
+}
+
+/**
+ * Check if a directory represents a package/app boundary.
+ * These are second-level directories under common monorepo patterns.
+ */
+function isPackageBoundary(directory: string): boolean {
+	const parts = directory.split("/");
+	if (parts.length < 2) return false;
+
+	const packageRoots = ["packages", "apps", "services", "libs", "modules"];
+	return packageRoots.includes(parts[0]!.toLowerCase());
+}
+
+/**
+ * Generate a human-readable reason for the boundary suggestion.
+ */
+function generateBoundaryReason(
+	directory: string,
+	files: ChangedFileCoverage[],
+	changeSummary: NodeChangeSummary,
+): string {
+	const reasons: string[] = [];
+
+	const dirName = directory.split("/").pop() || "root";
+
+	// File count reason
+	reasons.push(`${files.length} uncovered files in "${dirName}"`);
+
+	// Structural changes
+	if (changeSummary.filesAdded > 0) {
+		reasons.push(`${changeSummary.filesAdded} new file(s) added`);
+	}
+
+	// Standard directory boost
+	if (STANDARD_BOUNDARY_DIRS.has(dirName.toLowerCase())) {
+		reasons.push(`"${dirName}" is a common semantic boundary`);
+	}
+
+	// Package boundary
+	if (isPackageBoundary(directory)) {
+		reasons.push("represents a package/module boundary");
+	}
+
+	return reasons.join("; ");
+}
+
+/**
+ * Get all unique directories from a list of changed file coverages.
+ * Useful for understanding the scope of changes.
+ */
+export function getAffectedDirectories(
+	mapping: ChangedFilesMappingResult,
+): string[] {
+	const directories = new Set<string>();
+
+	for (const coverage of mapping.files) {
+		const dir = getDirectory(coverage.file.filename);
+		directories.add(dir);
+	}
+
+	return Array.from(directories).sort();
 }

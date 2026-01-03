@@ -3,12 +3,14 @@ import type { PRChangedFile, PRDiff } from "../../src/github/context";
 import {
 	determineNodesNeedingUpdate,
 	filterIgnoredFiles,
+	getAffectedDirectories,
 	getAffectedNodes,
 	getChangedFilesForNode,
 	getIgnoredChangedFiles,
 	getNodesNeedingUpdate,
 	getUncoveredChangedFiles,
 	hasAffectedNodes,
+	identifySemanticBoundaries,
 	mapChangedFilesToNodes,
 	mapChangedFileToCoveringNode,
 	reviewParentNodes,
@@ -1003,5 +1005,320 @@ describe("reviewParentNodes", () => {
 			"Multiple child nodes",
 		);
 		expect(packagesParent?.recommendationReason).toContain("3");
+	});
+});
+
+describe("identifySemanticBoundaries", () => {
+	test("returns empty result when new_nodes is false", () => {
+		const intentFiles = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// Uncovered files in src/ - would normally be candidates
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/utils.ts", "added", 100, 0),
+			createChangedFile("src/helpers.ts", "added", 100, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, false, "agents");
+
+		expect(result.hasCandidates).toBe(false);
+		expect(result.newNodesAllowed).toBe(false);
+		expect(result.candidates).toHaveLength(0);
+	});
+
+	test("returns empty result when all files are covered", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "modified", 50, 10),
+			createChangedFile("src/utils.ts", "modified", 30, 5),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.hasCandidates).toBe(false);
+		expect(result.newNodesAllowed).toBe(true);
+	});
+
+	test("identifies semantic boundary for uncovered directory with multiple files", () => {
+		// No root AGENTS.md, only in packages/api/
+		const intentFiles = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// Multiple uncovered files in src/
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/utils.ts", "added", 50, 0),
+			createChangedFile("src/helpers.ts", "added", 40, 0),
+			createChangedFile("packages/api/handler.ts", "modified", 10, 5),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.hasCandidates).toBe(true);
+		expect(result.candidates).toHaveLength(1);
+		expect(result.candidates[0]!.directory).toBe("src");
+		expect(result.candidates[0]!.suggestedNodePath).toBe("src/AGENTS.md");
+		expect(result.candidates[0]!.uncoveredFiles).toHaveLength(3);
+	});
+
+	test("respects minimum file threshold (needs 3+ files)", () => {
+		const intentFiles = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// Only 2 files in src/ - not enough
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/utils.ts", "added", 100, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.hasCandidates).toBe(false);
+	});
+
+	test("respects minimum changes threshold", () => {
+		const intentFiles = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// 3 files but very small changes (< 50 total)
+		const diff = createDiff([
+			createChangedFile("src/a.ts", "modified", 5, 5),
+			createChangedFile("src/b.ts", "modified", 5, 5),
+			createChangedFile("src/c.ts", "modified", 5, 5),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.hasCandidates).toBe(false);
+	});
+
+	test("suggests CLAUDE.md when fileType is claude", () => {
+		const intentFiles = [createIntentFile("packages/api/CLAUDE.md", "claude")];
+		const hierarchy = buildHierarchy(intentFiles, "claude");
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/utils.ts", "added", 50, 0),
+			createChangedFile("src/helpers.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "claude");
+
+		expect(result.candidates[0]!.suggestedNodePath).toBe("src/CLAUDE.md");
+	});
+
+	test("excludes ignored files from candidates", () => {
+		const intentFiles = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const ignore = new IntentLayerIgnore();
+		ignore.add("*.test.ts");
+
+		// 3 uncovered files but 2 are ignored
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/index.test.ts", "added", 50, 0), // Ignored
+			createChangedFile("src/utils.test.ts", "added", 40, 0), // Ignored
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy, ignore);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		// Only 1 non-ignored file, below threshold
+		expect(result.hasCandidates).toBe(false);
+	});
+
+	test("orders candidates by confidence (highest first)", () => {
+		const intentFiles: IntentFile[] = [];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// Multiple directories with uncovered files
+		const diff = createDiff([
+			// src/ - 3 files, standard directory name
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/utils.ts", "added", 50, 0),
+			createChangedFile("src/helpers.ts", "added", 40, 0),
+			// packages/api/ - 5 files, package boundary
+			createChangedFile("packages/api/a.ts", "added", 50, 0),
+			createChangedFile("packages/api/b.ts", "added", 50, 0),
+			createChangedFile("packages/api/c.ts", "added", 50, 0),
+			createChangedFile("packages/api/d.ts", "added", 50, 0),
+			createChangedFile("packages/api/e.ts", "added", 50, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.hasCandidates).toBe(true);
+		expect(result.candidates.length).toBeGreaterThanOrEqual(2);
+		// packages/api should be first due to more files + package boundary
+		expect(result.candidates[0]!.directory).toBe("packages/api");
+	});
+
+	test("boosts confidence for standard directory names", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		// Same number of files, but "components" is a standard name
+		const diff = createDiff([
+			createChangedFile("components/Button.tsx", "added", 100, 0),
+			createChangedFile("components/Input.tsx", "added", 50, 0),
+			createChangedFile("components/Card.tsx", "added", 40, 0),
+			createChangedFile("my-custom-dir/a.ts", "added", 100, 0),
+			createChangedFile("my-custom-dir/b.ts", "added", 50, 0),
+			createChangedFile("my-custom-dir/c.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		const componentsCandidate = result.candidates.find(
+			(c) => c.directory === "components",
+		);
+		const customCandidate = result.candidates.find(
+			(c) => c.directory === "my-custom-dir",
+		);
+
+		expect(componentsCandidate).toBeDefined();
+		expect(customCandidate).toBeDefined();
+		expect(componentsCandidate!.confidence).toBeGreaterThan(
+			customCandidate!.confidence,
+		);
+	});
+
+	test("generates meaningful reason for candidates", () => {
+		const intentFiles: IntentFile[] = [];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts", "added", 100, 0),
+			createChangedFile("packages/api/routes.ts", "added", 50, 0),
+			createChangedFile("packages/api/utils.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.candidates[0]!.reason).toContain("3 uncovered files");
+		expect(result.candidates[0]!.reason).toContain("3 new file(s) added");
+		expect(result.candidates[0]!.reason).toContain(
+			"represents a package/module boundary",
+		);
+	});
+
+	test("calculates change summary correctly for candidates", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([
+			createChangedFile("src/new.ts", "added", 100, 0),
+			createChangedFile("src/modified.ts", "modified", 20, 10),
+			createChangedFile("src/another.ts", "modified", 30, 15),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.candidates[0]!.changeSummary.filesAdded).toBe(1);
+		expect(result.candidates[0]!.changeSummary.filesModified).toBe(2);
+		expect(result.candidates[0]!.changeSummary.totalAdditions).toBe(150);
+		expect(result.candidates[0]!.changeSummary.totalDeletions).toBe(25);
+	});
+
+	test("handles multiple directories with candidates", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([
+			// src/
+			createChangedFile("src/a.ts", "added", 100, 0),
+			createChangedFile("src/b.ts", "added", 50, 0),
+			createChangedFile("src/c.ts", "added", 40, 0),
+			// lib/
+			createChangedFile("lib/a.ts", "added", 100, 0),
+			createChangedFile("lib/b.ts", "added", 50, 0),
+			createChangedFile("lib/c.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.totalCandidates).toBe(2);
+		expect(result.candidates.map((c) => c.directory).sort()).toEqual([
+			"lib",
+			"src",
+		]);
+	});
+
+	test("handles empty diff", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		expect(result.hasCandidates).toBe(false);
+		expect(result.candidates).toHaveLength(0);
+	});
+
+	test("handles root directory uncovered files", () => {
+		const intentFiles = [createIntentFile("packages/api/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// Files at root level (no directory)
+		const diff = createDiff([
+			createChangedFile("index.ts", "added", 100, 0),
+			createChangedFile("config.ts", "added", 50, 0),
+			createChangedFile("utils.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = identifySemanticBoundaries(mapping, true, "agents");
+
+		if (result.hasCandidates) {
+			// Root directory candidate
+			expect(result.candidates[0]!.directory).toBe("");
+			expect(result.candidates[0]!.suggestedNodePath).toBe("AGENTS.md");
+		}
+	});
+});
+
+describe("getAffectedDirectories", () => {
+	test("returns unique directories from changed files", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("src/index.ts"),
+			createChangedFile("src/utils.ts"),
+			createChangedFile("packages/api/handler.ts"),
+			createChangedFile("README.md"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const directories = getAffectedDirectories(mapping);
+
+		expect(directories).toEqual(["", "packages/api", "src"]);
+	});
+
+	test("returns empty array for empty diff", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const directories = getAffectedDirectories(mapping);
+
+		expect(directories).toEqual([]);
+	});
+
+	test("handles nested directories correctly", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/routes/users.ts"),
+			createChangedFile("packages/api/routes/posts.ts"),
+			createChangedFile("packages/api/handlers/auth.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const directories = getAffectedDirectories(mapping);
+
+		expect(directories).toEqual([
+			"packages/api/handlers",
+			"packages/api/routes",
+		]);
 	});
 });
