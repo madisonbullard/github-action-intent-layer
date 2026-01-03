@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import type { GitHubClient } from "../../src/github/client";
 import {
 	type CommentMarkerData,
 	clearCommentMarkerAppliedCommit,
@@ -12,7 +13,11 @@ import {
 	isCheckboxChecked,
 	isCommentResolved,
 	markCommentAsResolved,
+	type PostedComment,
 	parseCommentMarker,
+	postCommentsForUpdates,
+	type ResolvedCommentResult,
+	resolveAndPostComments,
 	updateCheckboxState,
 	updateCommentMarkerWithCommit,
 } from "../../src/github/comments";
@@ -474,5 +479,326 @@ describe("round-trip marker encoding", () => {
 
 			expect(parsed?.nodePath).toBe(path);
 		}
+	});
+});
+
+/**
+ * Create a mock GitHub client for testing.
+ * Uses type assertion to bypass strict typing requirements for mocks.
+ */
+function createMockClient(overrides: Record<string, unknown> = {}) {
+	const defaults = {
+		createComment: mock(async () => ({
+			id: 123,
+			html_url: "https://github.com/owner/repo/pull/1#issuecomment-123",
+		})),
+		getIssueComments: mock(async () => []),
+		updateComment: mock(async () => ({})),
+	};
+	return { ...defaults, ...overrides } as unknown as GitHubClient;
+}
+
+describe("postCommentsForUpdates", () => {
+	test("posts one comment per update", async () => {
+		const mockCreateComment = mock(async () => ({
+			id: 100,
+			html_url: "https://github.com/owner/repo/pull/1#issuecomment-100",
+		}));
+
+		const client = createMockClient({
+			createComment: mockCreateComment,
+		});
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "packages/api/AGENTS.md",
+				action: "update",
+				reason: "API changes",
+				currentContent: "old\n",
+				suggestedContent: "new\n",
+			},
+			{
+				nodePath: "packages/core/AGENTS.md",
+				action: "create",
+				reason: "New package",
+				suggestedContent: "# Core\n",
+			},
+		];
+
+		const results = await postCommentsForUpdates(
+			client,
+			42,
+			updates,
+			"headsha123",
+		);
+
+		expect(results.length).toBe(2);
+		expect(mockCreateComment).toHaveBeenCalledTimes(2);
+
+		// Verify first comment
+		expect(results[0]?.update.nodePath).toBe("packages/api/AGENTS.md");
+		expect(results[0]?.commentId).toBe(100);
+
+		// Verify second comment
+		expect(results[1]?.update.nodePath).toBe("packages/core/AGENTS.md");
+	});
+
+	test("returns empty array for no updates", async () => {
+		const mockCreateComment = mock(async () => ({
+			id: 100,
+			html_url: "https://github.com/test",
+		}));
+
+		const client = createMockClient({
+			createComment: mockCreateComment,
+		});
+
+		const results = await postCommentsForUpdates(client, 42, [], "headsha123");
+
+		expect(results.length).toBe(0);
+		expect(mockCreateComment).not.toHaveBeenCalled();
+	});
+
+	test("includes correct marker in generated comments", async () => {
+		let postedBody = "";
+		const mockCreateComment = mock(
+			async (_pullNumber: number, body: string) => {
+				postedBody = body;
+				return {
+					id: 100,
+					html_url: "https://github.com/test",
+				};
+			},
+		);
+
+		const client = createMockClient({
+			createComment: mockCreateComment,
+		});
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "AGENTS.md",
+				action: "create",
+				reason: "Initialize",
+				suggestedContent: "# Root\n",
+			},
+		];
+
+		await postCommentsForUpdates(client, 42, updates, "abc123def");
+
+		expect(postedBody).toContain(INTENT_LAYER_MARKER_PREFIX);
+		expect(postedBody).toContain("node=AGENTS.md");
+		expect(postedBody).toContain("headSha=abc123def");
+		expect(postedBody).toContain("- [ ] Apply this change");
+	});
+
+	test("passes comment options to generateComment", async () => {
+		let postedBody = "";
+		const mockCreateComment = mock(
+			async (_pullNumber: number, body: string) => {
+				postedBody = body;
+				return {
+					id: 100,
+					html_url: "https://github.com/test",
+				};
+			},
+		);
+
+		const client = createMockClient({
+			createComment: mockCreateComment,
+		});
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "AGENTS.md",
+				action: "create",
+				reason: "Initialize",
+				suggestedContent: "# Root\n",
+			},
+		];
+
+		await postCommentsForUpdates(client, 42, updates, "abc123", {
+			commentOptions: { includeCheckbox: false },
+		});
+
+		// Checkbox should NOT be present
+		expect(postedBody).not.toContain("- [ ] Apply this change");
+	});
+});
+
+describe("resolveAndPostComments", () => {
+	test("resolves existing intent comments and posts new ones", async () => {
+		const existingCommentBody = generateComment(
+			{
+				nodePath: "old/AGENTS.md",
+				action: "update",
+				reason: "Old change",
+				currentContent: "old\n",
+				suggestedContent: "new\n",
+			},
+			"oldheadsha",
+		);
+
+		const mockGetIssueComments = mock(async () => [
+			{ id: 1, body: existingCommentBody },
+			{ id: 2, body: "Regular comment, not intent layer" },
+		]);
+
+		const updatedComments: Array<{ id: number; body: string }> = [];
+		const mockUpdateComment = mock(async (commentId: number, body: string) => {
+			updatedComments.push({ id: commentId, body });
+			return {};
+		});
+
+		const mockCreateComment = mock(async () => ({
+			id: 999,
+			html_url: "https://github.com/test",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			updateComment: mockUpdateComment,
+			createComment: mockCreateComment,
+		});
+
+		const newUpdates: IntentUpdate[] = [
+			{
+				nodePath: "new/AGENTS.md",
+				action: "create",
+				reason: "New file",
+				suggestedContent: "# New\n",
+			},
+		];
+
+		const result = await resolveAndPostComments(
+			client,
+			42,
+			newUpdates,
+			"newheadsha",
+		);
+
+		// Should resolve 1 existing intent comment
+		expect(result.resolvedComments.length).toBe(1);
+		expect(result.resolvedComments[0]?.commentId).toBe(1);
+		expect(result.resolvedComments[0]?.nodePath).toBe("old/AGENTS.md");
+
+		// Verify the comment was marked as resolved
+		expect(mockUpdateComment).toHaveBeenCalledTimes(1);
+		expect(updatedComments[0]?.body).toContain("**RESOLVED**");
+
+		// Should post 1 new comment
+		expect(result.postedComments.length).toBe(1);
+		expect(result.postedComments[0]?.update.nodePath).toBe("new/AGENTS.md");
+	});
+
+	test("skips already resolved comments", async () => {
+		const resolvedCommentBody = markCommentAsResolved(
+			generateComment(
+				{
+					nodePath: "old/AGENTS.md",
+					action: "update",
+					reason: "Old change",
+					currentContent: "old\n",
+					suggestedContent: "new\n",
+				},
+				"oldheadsha",
+			),
+		);
+
+		const mockGetIssueComments = mock(async () => [
+			{ id: 1, body: resolvedCommentBody },
+		]);
+
+		const mockUpdateComment = mock(async () => ({}));
+		const mockCreateComment = mock(async () => ({
+			id: 999,
+			html_url: "https://github.com/test",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			updateComment: mockUpdateComment,
+			createComment: mockCreateComment,
+		});
+
+		const result = await resolveAndPostComments(client, 42, [], "newheadsha");
+
+		// Should NOT resolve already-resolved comment
+		expect(result.resolvedComments.length).toBe(0);
+		expect(mockUpdateComment).not.toHaveBeenCalled();
+	});
+
+	test("handles PR with no existing comments", async () => {
+		const mockGetIssueComments = mock(async () => []);
+		const mockCreateComment = mock(async () => ({
+			id: 100,
+			html_url: "https://github.com/test",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			createComment: mockCreateComment,
+		});
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "AGENTS.md",
+				action: "create",
+				reason: "Initialize",
+				suggestedContent: "# Root\n",
+			},
+		];
+
+		const result = await resolveAndPostComments(client, 42, updates, "headsha");
+
+		expect(result.resolvedComments.length).toBe(0);
+		expect(result.postedComments.length).toBe(1);
+	});
+
+	test("handles multiple existing intent comments", async () => {
+		const comment1 = generateComment(
+			{
+				nodePath: "packages/api/AGENTS.md",
+				action: "update",
+				reason: "API change",
+				currentContent: "old\n",
+				suggestedContent: "new\n",
+			},
+			"sha1",
+		);
+
+		const comment2 = generateComment(
+			{
+				nodePath: "packages/core/AGENTS.md",
+				action: "create",
+				reason: "New package",
+				suggestedContent: "# Core\n",
+			},
+			"sha2",
+		);
+
+		const mockGetIssueComments = mock(async () => [
+			{ id: 1, body: comment1 },
+			{ id: 2, body: comment2 },
+			{ id: 3, body: "Regular comment" },
+		]);
+
+		const mockUpdateComment = mock(async () => ({}));
+		const mockCreateComment = mock(async () => ({
+			id: 999,
+			html_url: "https://github.com/test",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			updateComment: mockUpdateComment,
+			createComment: mockCreateComment,
+		});
+
+		const result = await resolveAndPostComments(client, 42, [], "newsha");
+
+		// Should resolve both intent comments
+		expect(result.resolvedComments.length).toBe(2);
+		expect(mockUpdateComment).toHaveBeenCalledTimes(2);
 	});
 });

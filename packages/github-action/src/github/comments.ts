@@ -12,6 +12,7 @@ import {
 	formatDiffForComment,
 	generateDiffForUpdate,
 } from "../utils/diff.js";
+import type { GitHubClient } from "./client.js";
 
 /**
  * Hidden marker format for identifying intent layer comments.
@@ -358,4 +359,140 @@ function unescapeMarkerValue(value: string): string {
  */
 function escapeRegex(str: string): string {
 	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Result of posting a comment for an intent update.
+ */
+export interface PostedComment {
+	/** The intent update this comment was created for */
+	update: IntentUpdate;
+	/** The ID of the created comment */
+	commentId: number;
+	/** The URL of the created comment */
+	commentUrl: string;
+}
+
+/**
+ * Options for posting comments.
+ */
+export interface PostCommentsOptions {
+	/** Options for comment generation */
+	commentOptions?: CommentOptions;
+}
+
+/**
+ * Post one comment per affected node for intent layer updates.
+ *
+ * Each intent update gets its own PR comment with:
+ * - Hidden marker for identification
+ * - Formatted diff showing proposed changes
+ * - Approval checkbox (if enabled)
+ *
+ * @param client - GitHub client for API operations
+ * @param pullNumber - PR number to post comments on
+ * @param updates - Array of intent updates to create comments for
+ * @param headSha - Current PR head SHA
+ * @param options - Optional configuration for comment posting
+ * @returns Array of posted comment results
+ */
+export async function postCommentsForUpdates(
+	client: GitHubClient,
+	pullNumber: number,
+	updates: IntentUpdate[],
+	headSha: string,
+	options: PostCommentsOptions = {},
+): Promise<PostedComment[]> {
+	const results: PostedComment[] = [];
+
+	for (const update of updates) {
+		const commentBody = generateComment(
+			update,
+			headSha,
+			options.commentOptions,
+		);
+
+		const createdComment = await client.createComment(pullNumber, commentBody);
+
+		results.push({
+			update,
+			commentId: createdComment.id,
+			commentUrl: createdComment.html_url,
+		});
+	}
+
+	return results;
+}
+
+/**
+ * Result of resolving existing comments.
+ */
+export interface ResolvedCommentResult {
+	/** The ID of the resolved comment */
+	commentId: number;
+	/** The node path of the resolved comment */
+	nodePath: string;
+}
+
+/**
+ * Resolve (mark as stale) existing intent layer comments and post new ones.
+ *
+ * This function:
+ * 1. Finds all existing intent layer comments on the PR
+ * 2. Marks them as RESOLVED (stale)
+ * 3. Posts new comments for the provided updates
+ *
+ * @param client - GitHub client for API operations
+ * @param pullNumber - PR number to operate on
+ * @param updates - New intent updates to create comments for
+ * @param headSha - Current PR head SHA
+ * @param options - Optional configuration for comment posting
+ * @returns Object with resolved comments and newly posted comments
+ */
+export async function resolveAndPostComments(
+	client: GitHubClient,
+	pullNumber: number,
+	updates: IntentUpdate[],
+	headSha: string,
+	options: PostCommentsOptions = {},
+): Promise<{
+	resolvedComments: ResolvedCommentResult[];
+	postedComments: PostedComment[];
+}> {
+	// Get existing comments on the PR
+	const existingComments = await client.getIssueComments(pullNumber);
+
+	// Find and resolve existing intent layer comments
+	const intentComments = findIntentLayerComments(existingComments);
+	const resolvedComments: ResolvedCommentResult[] = [];
+
+	for (const comment of intentComments) {
+		if (!comment.body) continue;
+
+		// Skip if already resolved
+		if (isCommentResolved(comment.body)) continue;
+
+		const marker = parseCommentMarker(comment.body);
+		if (!marker) continue;
+
+		// Mark as resolved
+		const resolvedBody = markCommentAsResolved(comment.body);
+		await client.updateComment(comment.id, resolvedBody);
+
+		resolvedComments.push({
+			commentId: comment.id,
+			nodePath: marker.nodePath,
+		});
+	}
+
+	// Post new comments
+	const postedComments = await postCommentsForUpdates(
+		client,
+		pullNumber,
+		updates,
+		headSha,
+		options,
+	);
+
+	return { resolvedComments, postedComments };
 }
