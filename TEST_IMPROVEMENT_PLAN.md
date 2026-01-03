@@ -113,10 +113,10 @@ test/
 Mock OpenCode responses that conform to the output schema. TypeScript typing is sufficient for validation.
 
 ### Tasks
-- [ ] Implement `test/mocks/opencode.ts` with `mockOpenCodeResponse` function
-- [ ] Implement mock scenarios: `update`, `create`, `delete`, `no-changes`
+- [x] Implement `test/mocks/opencode.ts` with `mockOpenCodeResponse` function
+- [x] Implement mock scenarios: `update`, `create`, `delete`, `no-changes`
 - [ ] Update existing integration tests to use centralized mocks (if not already)
-- [ ] Implement `test/mocks/github.ts` with common GitHub API mocks
+- [x] Implement `test/mocks/github.ts` with common GitHub API mocks
 
 ### Example Implementation
 ```typescript
