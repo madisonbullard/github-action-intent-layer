@@ -28,16 +28,16 @@ import {
 	openIntentLayerPullRequest,
 } from "../../src/github/commits";
 import type { IntentUpdate } from "../../src/opencode/output-schema";
+import { createMockGitHubClient, errors } from "../mocks";
 
 /**
  * Create a mock GitHub client for testing new_pr mode operations.
+ * Uses centralized createMockGitHubClient for consistency.
  */
 function createMockClient(overrides: Record<string, unknown> = {}) {
 	const defaults = {
 		getFileContent: mock(async () => {
-			const error = new Error("Not Found") as Error & { status: number };
-			error.status = 404;
-			throw error;
+			throw errors.notFound();
 		}),
 		createOrUpdateFile: mock(async () => ({
 			commit: {

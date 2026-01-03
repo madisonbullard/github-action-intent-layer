@@ -15,14 +15,12 @@ import {
 	handleUncheckedCheckbox,
 } from "../../src/github/checkbox-handler";
 import type { GitHubClient } from "../../src/github/client";
-import {
-	INTENT_LAYER_MARKER_PREFIX,
-	INTENT_LAYER_MARKER_SUFFIX,
-	parseCommentMarker,
-} from "../../src/github/comments";
+import { parseCommentMarker } from "../../src/github/comments";
+import { createMockGitHubClient, errors, mockGitHubResponses } from "../mocks";
 
 /**
  * Helper to create a comment body with proper marker and content structure.
+ * Uses centralized mockGitHubResponses.intentLayerComment under the hood.
  */
 function createCommentBody(options: {
 	nodePath: string;
@@ -35,58 +33,22 @@ function createCommentBody(options: {
 	reason?: string;
 	action?: "create" | "update";
 }): string {
-	const parts = [`node=${encodeURIComponent(options.nodePath)}`];
-	if (options.otherNodePath) {
-		parts.push(`otherNode=${encodeURIComponent(options.otherNodePath)}`);
-	}
-	parts.push(`appliedCommit=${options.appliedCommit ?? ""}`);
-	parts.push(`headSha=${options.headSha}`);
-
-	const marker = `${INTENT_LAYER_MARKER_PREFIX} ${parts.join(" ")} ${INTENT_LAYER_MARKER_SUFFIX}`;
-	const checkbox = options.checked
-		? "- [x] Apply this change"
-		: "- [ ] Apply this change";
-
-	const suggestedContent =
-		options.suggestedContent ??
-		"# Default Content\n\nThis is suggested content.";
-	const reason = options.reason ?? "Changes detected in covered files";
-
-	let content = `${marker}
-
-## Intent Layer ${options.action === "update" ? "Update" : "Add"} Suggestion
-
-**Path:** \`${options.nodePath}\`
-
-`;
-
-	if (options.currentContent) {
-		content += `### Current Content
-
-\`\`\`markdown
-${options.currentContent}
-\`\`\`
-
-`;
-	}
-
-	content += `### Suggested Content
-
-\`\`\`markdown
-${suggestedContent}
-\`\`\`
-
-**Reason:** ${reason}
-
----
-
-${checkbox}`;
-
-	return content;
+	return mockGitHubResponses.intentLayerComment({
+		nodePath: options.nodePath,
+		otherNodePath: options.otherNodePath,
+		headSha: options.headSha,
+		appliedCommit: options.appliedCommit,
+		checked: options.checked,
+		suggestedContent: options.suggestedContent,
+		currentContent: options.currentContent,
+		reason: options.reason,
+		action: options.action,
+	});
 }
 
 /**
  * Create a mock GitHubClient with configurable responses for revert tests.
+ * Uses centralized createMockGitHubClient for consistency.
  */
 function createMockClient(options: {
 	getCommentBody?: string | null;
@@ -100,82 +62,71 @@ function createMockClient(options: {
 	const commitSha = options.commitSha ?? "revert-commit-sha-123";
 	const parentCommitSha = options.parentCommitSha ?? "parent-commit-sha-456";
 
-	return {
-		getComment: mock((commentId: number) =>
-			Promise.resolve({ id: commentId, body: options.getCommentBody ?? "" }),
+	return createMockGitHubClient({
+		getComment: mock(() =>
+			Promise.resolve({ id: 1, body: options.getCommentBody ?? "" }),
 		),
 		getFileContent: mock((_path: string, ref?: string) => {
 			// If querying the parent commit for file content (for revert)
 			if (ref === parentCommitSha) {
 				if (options.parentFileContent === null) {
 					// File didn't exist at parent commit
-					const error = new Error("Not Found") as Error & { status: number };
-					error.status = 404;
-					return Promise.reject(error);
+					return Promise.reject(errors.notFound());
 				}
-				return Promise.resolve({
-					sha: "parent-file-sha",
-					content: Buffer.from(
+				return Promise.resolve(
+					mockGitHubResponses.fileContent(
+						"file.md",
 						options.parentFileContent ?? "# Parent Content",
-					).toString("base64"),
-				});
+						{ sha: "parent-file-sha" },
+					),
+				);
 			}
 
 			// Current branch file content
 			if (options.fileExists) {
-				return Promise.resolve({
-					sha: "existing-file-sha",
-					content: Buffer.from(
+				return Promise.resolve(
+					mockGitHubResponses.fileContent(
+						"file.md",
 						options.existingFileContent ?? "# Existing Content",
-					).toString("base64"),
-				});
+						{ sha: "existing-file-sha" },
+					),
+				);
 			}
-			const error = new Error("Not Found") as Error & { status: number };
-			error.status = 404;
-			return Promise.reject(error);
+			return Promise.reject(errors.notFound());
 		}),
 		getCommit: mock((sha: string) => {
 			return Promise.resolve({
 				sha,
+				commit: { message: "Test commit" },
 				parents: [{ sha: parentCommitSha }],
 			});
 		}),
-		createOrUpdateFile: mock(
-			(
-				_path: string,
-				_content: string,
-				_message: string,
-				_branch: string,
-				_sha?: string,
-			) => {
-				if (options.commitError) {
-					return Promise.reject(options.commitError);
-				}
-				return Promise.resolve({
-					commit: {
-						sha: commitSha,
-						html_url: `https://github.com/test/repo/commit/${commitSha}`,
-					},
-				});
-			},
-		),
-		deleteFile: mock(
-			(_path: string, _message: string, _branch: string, _sha: string) => {
-				if (options.commitError) {
-					return Promise.reject(options.commitError);
-				}
-				return Promise.resolve({
-					commit: {
-						sha: commitSha,
-						html_url: `https://github.com/test/repo/commit/${commitSha}`,
-					},
-				});
-			},
-		),
+		createOrUpdateFile: options.commitError
+			? mock(() => Promise.reject(options.commitError))
+			: mock(() =>
+					Promise.resolve({
+						commit: {
+							sha: commitSha,
+							html_url: `https://github.com/test/repo/commit/${commitSha}`,
+						},
+						content: { sha: "new-sha", path: "file.md" },
+					}),
+				),
+		deleteFile: options.commitError
+			? mock(() => Promise.reject(options.commitError))
+			: mock(() =>
+					Promise.resolve({
+						commit: {
+							sha: commitSha,
+							html_url: `https://github.com/test/repo/commit/${commitSha}`,
+						},
+						content: null,
+					}),
+				),
 		updateComment: mock((commentId: number, body: string) =>
 			Promise.resolve({ id: commentId, body }),
 		),
-	} as unknown as GitHubClient;
+	});
 }
 
 describe("Integration: checkbox untoggle → revert", () => {

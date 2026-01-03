@@ -115,7 +115,8 @@ Mock OpenCode responses that conform to the output schema. TypeScript typing is 
 ### Tasks
 - [x] Implement `test/mocks/opencode.ts` with `mockOpenCodeResponse` function
 - [x] Implement mock scenarios: `update`, `create`, `delete`, `no-changes`
-- [ ] Update existing integration tests to use centralized mocks (if not already)
+- [x] Update existing integration tests to use centralized mocks (if not already)
+  - **Result:** Updated `checkbox-toggle-commit.test.ts`, `checkbox-untoggle-revert.test.ts`, and `new-pr-output-mode.test.ts` to use centralized mocks from `test/mocks/`. Local `createCommentBody` now delegates to `mockGitHubResponses.intentLayerComment()`. Local `createMockClient` now uses `createMockGitHubClient` and `errors.notFound()` from centralized mocks.
 - [x] Implement `test/mocks/github.ts` with common GitHub API mocks
 
 ### Example Implementation
