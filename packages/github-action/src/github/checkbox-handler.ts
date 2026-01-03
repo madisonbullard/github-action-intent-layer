@@ -7,7 +7,11 @@
  */
 
 import type { GitHubClient } from "./client.js";
-import { isCheckboxChecked, parseCommentMarker } from "./comments.js";
+import {
+	type CommentMarkerData,
+	isCheckboxChecked,
+	parseCommentMarker,
+} from "./comments.js";
 
 /**
  * Default debounce delay in milliseconds.
@@ -25,6 +29,8 @@ export interface DebounceResult {
 	isChecked?: boolean;
 	/** The comment body after re-fetching (only valid if stable=true) */
 	commentBody?: string;
+	/** Parsed marker data including nodePath, appliedCommit, headSha (only valid if stable=true) */
+	markerData?: CommentMarkerData;
 	/** Reason for instability if stable=false */
 	reason?: string;
 }
@@ -124,11 +130,12 @@ export async function debounceCheckboxToggle(
 		};
 	}
 
-	// State is stable, return success
+	// State is stable, return success with parsed marker data
 	return {
 		stable: true,
 		isChecked: currentCheckboxState,
 		commentBody: currentComment.body,
+		markerData: currentMarker,
 	};
 }
 

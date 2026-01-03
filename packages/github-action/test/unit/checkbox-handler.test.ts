@@ -33,7 +33,9 @@ describe("debounceCheckboxToggle", () => {
 	// Helper to create a valid comment body with marker
 	function createCommentBody(options: {
 		nodePath?: string;
+		otherNodePath?: string;
 		headSha?: string;
+		appliedCommit?: string;
 		checked?: boolean;
 	}): string {
 		const nodePath = options.nodePath ?? "packages/api/AGENTS.md";
@@ -42,7 +44,14 @@ describe("debounceCheckboxToggle", () => {
 			? "- [x] Apply this change"
 			: "- [ ] Apply this change";
 
-		return `${INTENT_LAYER_MARKER_PREFIX} node=${encodeURIComponent(nodePath)} appliedCommit= headSha=${headSha} ${INTENT_LAYER_MARKER_SUFFIX}
+		const parts = [`node=${encodeURIComponent(nodePath)}`];
+		if (options.otherNodePath) {
+			parts.push(`otherNode=${encodeURIComponent(options.otherNodePath)}`);
+		}
+		parts.push(`appliedCommit=${options.appliedCommit ?? ""}`);
+		parts.push(`headSha=${headSha}`);
+
+		return `${INTENT_LAYER_MARKER_PREFIX} ${parts.join(" ")} ${INTENT_LAYER_MARKER_SUFFIX}
 
 ## Intent Layer Update
 
@@ -78,6 +87,11 @@ ${checkbox}`;
 		expect(result.stable).toBe(true);
 		expect(result.isChecked).toBe(true);
 		expect(result.commentBody).toBe(commentBody);
+		// Verify markerData is included
+		expect(result.markerData).toBeDefined();
+		expect(result.markerData?.nodePath).toBe("packages/api/AGENTS.md");
+		expect(result.markerData?.headSha).toBe("abc123");
+		expect(result.markerData?.appliedCommit).toBeUndefined();
 	});
 
 	test("returns stable=false when checkbox state changed", async () => {
@@ -178,6 +192,41 @@ ${checkbox}`;
 		);
 
 		expect(result.stable).toBe(true);
+	});
+
+	test("includes appliedCommit and otherNodePath in markerData when present", async () => {
+		const commentBody = createCommentBody({
+			nodePath: "src/AGENTS.md",
+			otherNodePath: "src/CLAUDE.md",
+			headSha: "def456",
+			appliedCommit: "commit789",
+			checked: true,
+		});
+		const mockClient = createMockClient({ body: commentBody });
+
+		const result = await debounceCheckboxToggle(mockClient, 123, commentBody, {
+			delayMs: 10,
+		});
+
+		expect(result.stable).toBe(true);
+		expect(result.markerData).toBeDefined();
+		expect(result.markerData?.nodePath).toBe("src/AGENTS.md");
+		expect(result.markerData?.otherNodePath).toBe("src/CLAUDE.md");
+		expect(result.markerData?.headSha).toBe("def456");
+		expect(result.markerData?.appliedCommit).toBe("commit789");
+	});
+
+	test("markerData is undefined when result is not stable", async () => {
+		const initialBody = createCommentBody({ checked: false });
+		const changedBody = createCommentBody({ checked: true });
+		const mockClient = createMockClient({ body: changedBody });
+
+		const result = await debounceCheckboxToggle(mockClient, 123, initialBody, {
+			delayMs: 10,
+		});
+
+		expect(result.stable).toBe(false);
+		expect(result.markerData).toBeUndefined();
 	});
 });
 
