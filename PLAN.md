@@ -212,7 +212,7 @@ prompts:
 
 ### Phase 7: OpenCode SDK Integration
 - [x] 7.1 Define and validate structured JSON output schema
-- [ ] 7.2 Update prompts to elicit valid JSON output
+- [x] 7.2 Update prompts to elicit valid JSON output
 - [ ] 7.3 Initialize OpenCode SDK client with user-provided API key
 - [ ] 7.4 Create session for intent layer analysis
 - [ ] 7.5 Build context payload (PR info, commits, issues, diff, existing nodes)
