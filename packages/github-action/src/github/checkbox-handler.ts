@@ -6,9 +6,15 @@
  * ensure stable state before processing.
  */
 
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import * as core from "@actions/core";
 import type { SymlinkSource } from "../config/schema.js";
 import type { IntentUpdate } from "../opencode/output-schema.js";
 import type { GitHubClient } from "./client.js";
+
+const execAsync = promisify(exec);
+
 import {
 	addCommittedStatus,
 	addRevertedStatus,
@@ -524,4 +530,159 @@ export async function handleUncheckedCheckbox(
 		success: true,
 		commitResult,
 	};
+}
+
+/**
+ * Error class for insufficient git history.
+ *
+ * This error is thrown when the checkbox-handler mode cannot function
+ * because the git checkout was performed with insufficient history depth.
+ * File-level reverts require access to parent commits, which requires
+ * full git history (fetch-depth: 0).
+ */
+export class InsufficientHistoryError extends Error {
+	/** The commit SHA that could not be accessed */
+	readonly commitSha?: string;
+
+	constructor(message: string, commitSha?: string) {
+		super(message);
+		this.name = "InsufficientHistoryError";
+		this.commitSha = commitSha;
+	}
+}
+
+/**
+ * Result of validating git history for checkbox-handler operations.
+ */
+export interface GitHistoryValidationResult {
+	/** Whether the git history is sufficient for operations */
+	valid: boolean;
+	/** Error message if validation failed */
+	error?: string;
+	/** Whether this appears to be a shallow clone */
+	isShallowClone?: boolean;
+	/** The depth of the clone if determinable */
+	cloneDepth?: number;
+}
+
+/**
+ * Check if the local git repository has sufficient history for checkbox-handler operations.
+ *
+ * File-level reverts require access to parent commits of the appliedCommit.
+ * This function checks if the repository was cloned with sufficient depth.
+ * If the clone is shallow (fetch-depth != 0), the revert operation may fail.
+ *
+ * @param commitSha - Optional specific commit SHA to verify access to
+ * @returns Validation result indicating whether history is sufficient
+ */
+export async function validateGitHistory(
+	commitSha?: string,
+): Promise<GitHistoryValidationResult> {
+	try {
+		// Check if this is a shallow clone by looking for the shallow file
+		const isShallow = await checkIsShallowClone();
+
+		if (isShallow) {
+			return {
+				valid: false,
+				isShallowClone: true,
+				error:
+					"Git repository is a shallow clone. The checkbox-handler mode requires full git history for file-level reverts. " +
+					"Please configure your checkout action with 'fetch-depth: 0'. " +
+					"Example:\n" +
+					"  - uses: actions/checkout@v4\n" +
+					"    with:\n" +
+					"      fetch-depth: 0",
+			};
+		}
+
+		// If a specific commit SHA is provided, verify we can access it
+		if (commitSha) {
+			const commitAccessible = await verifyCommitAccessible(commitSha);
+			if (!commitAccessible) {
+				return {
+					valid: false,
+					error:
+						`Cannot access commit ${commitSha.substring(0, 7)}. ` +
+						"The checkbox-handler mode requires full git history. " +
+						"Please configure your checkout action with 'fetch-depth: 0'.",
+				};
+			}
+		}
+
+		return { valid: true, isShallowClone: false };
+	} catch (error) {
+		// If we can't determine git status, return an error but don't block
+		// The actual operation may still succeed via the GitHub API
+		return {
+			valid: false,
+			error: `Failed to validate git history: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+}
+
+/**
+ * Check if the repository is a shallow clone.
+ *
+ * @returns True if the repository is shallow
+ */
+async function checkIsShallowClone(): Promise<boolean> {
+	try {
+		const { stdout } = await execAsync("git rev-parse --is-shallow-repository");
+		return stdout.trim() === "true";
+	} catch {
+		// If git command fails, assume not shallow (be permissive)
+		return false;
+	}
+}
+
+/**
+ * Verify that a specific commit is accessible in the local git history.
+ *
+ * @param commitSha - The commit SHA to check
+ * @returns True if the commit is accessible
+ */
+async function verifyCommitAccessible(commitSha: string): Promise<boolean> {
+	try {
+		// Try to get the commit type - this will fail if the commit doesn't exist locally
+		await execAsync(`git cat-file -t ${commitSha}`);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Validate git history and fail the GitHub Action if insufficient.
+ *
+ * This function should be called early in the checkbox-handler mode to
+ * ensure the environment is properly configured before attempting operations.
+ *
+ * Per PLAN.md task 12.6:
+ * "Fail checkbox-handler if history is insufficient (requires fetch-depth: 0)"
+ *
+ * @param commitSha - Optional specific commit SHA to verify access to
+ * @throws InsufficientHistoryError if validation fails
+ */
+export async function validateAndFailOnInsufficientHistory(
+	commitSha?: string,
+): Promise<void> {
+	const validation = await validateGitHistory(commitSha);
+
+	if (!validation.valid) {
+		// Log the error for debugging
+		core.error(validation.error ?? "Git history validation failed");
+
+		// Fail the GitHub Action with clear message
+		core.setFailed(
+			validation.error ??
+				"Git history is insufficient for checkbox-handler mode",
+		);
+
+		// Throw an error for programmatic handling
+		throw new InsufficientHistoryError(
+			validation.error ?? "Git history is insufficient",
+			commitSha,
+		);
+	}
 }

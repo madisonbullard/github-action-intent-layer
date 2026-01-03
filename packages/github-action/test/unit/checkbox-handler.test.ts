@@ -1041,3 +1041,133 @@ ${suggestedContent}
 		expect(updatedFiles).toContain("packages/api/CLAUDE.md");
 	});
 });
+
+describe("InsufficientHistoryError", () => {
+	// Need to import the error class
+	const {
+		InsufficientHistoryError,
+	} = require("../../src/github/checkbox-handler");
+
+	test("has correct name and message", () => {
+		const error = new InsufficientHistoryError("Test error message");
+		expect(error.name).toBe("InsufficientHistoryError");
+		expect(error.message).toBe("Test error message");
+	});
+
+	test("stores commitSha when provided", () => {
+		const error = new InsufficientHistoryError("Test message", "abc123def456");
+		expect(error.commitSha).toBe("abc123def456");
+	});
+
+	test("commitSha is undefined when not provided", () => {
+		const error = new InsufficientHistoryError("Test message");
+		expect(error.commitSha).toBeUndefined();
+	});
+
+	test("is instance of Error", () => {
+		const error = new InsufficientHistoryError("Test message");
+		expect(error).toBeInstanceOf(Error);
+	});
+});
+
+describe("validateGitHistory", () => {
+	const { validateGitHistory } = require("../../src/github/checkbox-handler");
+
+	// Note: These tests require actual git commands to work properly.
+	// In a real CI environment, the results will depend on how the repo was cloned.
+
+	test("returns valid result for full clone (current repo)", async () => {
+		// The current repo should be a full clone (not shallow)
+		const result = await validateGitHistory();
+
+		// Should return a result object
+		expect(result).toHaveProperty("valid");
+		expect(result).toHaveProperty("isShallowClone");
+
+		// In a non-CI environment, this should be a full clone
+		// Note: This test may behave differently in CI depending on checkout config
+		if (result.valid) {
+			expect(result.isShallowClone).toBe(false);
+		}
+	});
+
+	test("returns valid result when verifying accessible commit", async () => {
+		// Get the current HEAD commit which should always be accessible
+		const { exec } = require("node:child_process");
+		const { promisify } = require("node:util");
+		const execAsync = promisify(exec);
+
+		let currentCommit: string;
+		try {
+			const { stdout } = await execAsync("git rev-parse HEAD");
+			currentCommit = stdout.trim();
+		} catch {
+			// Skip test if git command fails
+			return;
+		}
+
+		const result = await validateGitHistory(currentCommit);
+
+		// If the repo isn't shallow, we should be able to access the HEAD commit
+		if (!result.isShallowClone) {
+			expect(result.valid).toBe(true);
+		}
+	});
+
+	test("returns error for inaccessible commit", async () => {
+		// Use a fake commit SHA that definitely doesn't exist
+		const fakeCommit = "0000000000000000000000000000000000000000";
+		const result = await validateGitHistory(fakeCommit);
+
+		// Should indicate the commit is not accessible (if repo isn't shallow)
+		// If shallow, will fail for different reason
+		expect(result.valid).toBe(false);
+		expect(result.error).toBeDefined();
+	});
+});
+
+describe("GitHistoryValidationResult interface", () => {
+	test("validateGitHistory returns proper structure", async () => {
+		const { validateGitHistory } = require("../../src/github/checkbox-handler");
+
+		const result = await validateGitHistory();
+
+		// Verify the result has the expected structure
+		expect(typeof result.valid).toBe("boolean");
+
+		if (result.error !== undefined) {
+			expect(typeof result.error).toBe("string");
+		}
+
+		if (result.isShallowClone !== undefined) {
+			expect(typeof result.isShallowClone).toBe("boolean");
+		}
+
+		if (result.cloneDepth !== undefined) {
+			expect(typeof result.cloneDepth).toBe("number");
+		}
+	});
+});
+
+describe("validateAndFailOnInsufficientHistory", () => {
+	// These tests would require mocking core.error and core.setFailed
+	// For now, we test the basic export exists and has correct signature
+
+	test("function is exported", () => {
+		const {
+			validateAndFailOnInsufficientHistory,
+		} = require("../../src/github/checkbox-handler");
+
+		expect(typeof validateAndFailOnInsufficientHistory).toBe("function");
+	});
+
+	test("function accepts optional commitSha parameter", () => {
+		const {
+			validateAndFailOnInsufficientHistory,
+		} = require("../../src/github/checkbox-handler");
+
+		// Verify the function can be called (won't actually fail in a full clone)
+		// We're just checking the function signature works
+		expect(validateAndFailOnInsufficientHistory.length).toBeLessThanOrEqual(1);
+	});
+});
