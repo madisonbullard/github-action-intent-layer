@@ -33,26 +33,28 @@ packages/github-action/
 │   │   └── defaults.ts           # Default configuration values
 │   ├── github/
 │   │   ├── client.ts             # GitHub API wrapper (uses GITHUB_TOKEN)
+│   │   ├── checkbox-handler.ts   # Checkbox toggle handling with debounce
 │   │   ├── comments.ts           # PR comment management
 │   │   ├── commits.ts            # Commit operations (intent commits)
 │   │   └── context.ts            # Extract PR context (diff, commits, issues, etc.)
 │   ├── intent/
-│   │   ├── detector.ts           # Detect existing intent layer structure
 │   │   ├── analyzer.ts           # Analyze which nodes need updates
-│   │   ├── tokenizer.ts          # Approximate token counting for budget enforcement
+│   │   ├── detector.ts           # Detect existing intent layer structure
 │   │   ├── hierarchy.ts          # Build/traverse intent node hierarchy
-│   │   └── generator.ts          # Generate updated MD content via OpenCode SDK
+│   │   ├── tokenizer.ts          # Approximate token counting for budget enforcement
+│   │   └── validation.ts         # Intent layer validation (symlinks, config)
 │   ├── opencode/
 │   │   ├── client.ts             # OpenCode SDK wrapper
-│   │   ├── session.ts            # Session management
-│   │   └── prompts.ts            # LLM prompts for intent layer analysis
+│   │   ├── context.ts            # Context payload builder for LLM analysis
+│   │   ├── output-schema.ts      # LLM output schema and validation
+│   │   ├── prompts.ts            # LLM prompts for intent layer analysis
+│   │   └── session.ts            # Session management
 │   ├── patterns/
 │   │   ├── ignore.ts             # .intentlayerignore parsing
 │   │   └── prompts.ts            # Pattern-matched prompt resolution
 │   └── utils/
-│       ├── files.ts              # File system utilities
-│       ├── symlink.ts            # Symlink detection and management
-│       └── diff.ts               # Diff formatting utilities
+│       ├── diff.ts               # Diff formatting utilities
+│       └── errors.ts             # Custom error classes
 ├── test/
 │   ├── unit/                     # Unit tests with mocked GitHub API
 │   ├── integration/              # Integration tests against test repo
