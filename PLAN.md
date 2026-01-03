@@ -215,7 +215,7 @@ prompts:
 - [x] 7.2 Update prompts to elicit valid JSON output
 - [x] 7.3 Initialize OpenCode SDK client with user-provided API key
 - [x] 7.4 Create session for intent layer analysis
-- [ ] 7.5 Build context payload (PR info, commits, issues, diff, existing nodes)
+- [x] 7.5 Build context payload (PR info, commits, issues, diff, existing nodes)
 - [ ] 7.6 Implement prompt for updating existing nodes
 - [ ] 7.7 Implement prompt for proposing new nodes (skip if `new_nodes: false`)
 - [ ] 7.8 Implement prompt for suggesting node splits
