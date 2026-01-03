@@ -2,7 +2,6 @@
 	"name": "@github-action-intent-layer/github-action",
 	"module": "index.ts",
 	"type": "module",
-	"private": true,
 	"scripts": {
 		"build": "esbuild index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js",
 		"test": "bun test",
