@@ -279,7 +279,7 @@ prompts:
 ### Phase 14: CI/CD & Release
 - [x] 14.1 Create CI workflow (`ci.yml`) - run tests on PR
 - [x] 14.2 Create release workflow (`release.yml`) - version, tag, release on main
-- [ ] 14.3 Set up semantic versioning
+- [x] 14.3 Set up semantic versioning
 - [ ] 14.4 Configure GitHub Action marketplace metadata
 
 ### Phase 15: Documentation
