@@ -97,7 +97,7 @@ test/
 ```
 
 ### Tasks
-- [ ] Create `test/mocks/` directory
+- [x] Create `test/mocks/` directory
 - [ ] Create `test/mocks/github.ts` (stub file with TODO)
 - [ ] Create `test/mocks/opencode.ts` (stub file with TODO)
 - [ ] Create `test/integration-real-github/` directory
