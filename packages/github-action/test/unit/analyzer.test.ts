@@ -11,6 +11,7 @@ import {
 	hasAffectedNodes,
 	mapChangedFilesToNodes,
 	mapChangedFileToCoveringNode,
+	reviewParentNodes,
 	UNCOVERED_KEY,
 } from "../../src/intent/analyzer";
 import type { IntentFile } from "../../src/intent/detector";
@@ -748,5 +749,259 @@ describe("getNodesNeedingUpdate", () => {
 
 		expect(result.hasUpdates).toBe(false);
 		expect(result.totalNodes).toBe(0);
+	});
+});
+
+describe("reviewParentNodes", () => {
+	test("returns empty result when no direct updates", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		expect(result.candidates).toHaveLength(0);
+		expect(result.totalParentNodes).toBe(0);
+		expect(result.hasRecommendedUpdates).toBe(false);
+	});
+
+	test("returns empty result when updated nodes have no parents", () => {
+		// Root-level node has no parents
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([createChangedFile("src/index.ts")]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		expect(result.candidates).toHaveLength(0);
+		expect(result.totalParentNodes).toBe(0);
+	});
+
+	test("identifies parent nodes when child nodes are updated", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([createChangedFile("packages/api/handler.ts")]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		// packages/api/AGENTS.md has two parents: packages/AGENTS.md and AGENTS.md
+		expect(result.totalParentNodes).toBe(2);
+		expect(result.candidates.map((c) => c.node.file.path)).toContain(
+			"packages/AGENTS.md",
+		);
+		expect(result.candidates.map((c) => c.node.file.path)).toContain(
+			"AGENTS.md",
+		);
+	});
+
+	test("defaults to not recommending parent updates for small changes", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([createChangedFile("src/index.ts")]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		expect(result.hasRecommendedUpdates).toBe(false);
+		expect(result.candidates[0]?.recommendUpdate).toBe(false);
+	});
+
+	test("recommends parent update when multiple children are updated (3+)", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+			createIntentFile("packages/web/AGENTS.md"),
+			createIntentFile("packages/core/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts"),
+			createChangedFile("packages/web/App.tsx"),
+			createChangedFile("packages/core/index.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		// packages/AGENTS.md has 3 children updated
+		const packagesParent = result.candidates.find(
+			(c) => c.node.file.path === "packages/AGENTS.md",
+		);
+		expect(packagesParent?.recommendUpdate).toBe(true);
+		expect(packagesParent?.updatedChildren).toHaveLength(3);
+		expect(result.hasRecommendedUpdates).toBe(true);
+	});
+
+	test("recommends parent update for significant structural changes (5+ added/removed)", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// 5 files added in src/
+		const diff = createDiff([
+			createChangedFile("src/file1.ts", "added"),
+			createChangedFile("src/file2.ts", "added"),
+			createChangedFile("src/file3.ts", "added"),
+			createChangedFile("src/file4.ts", "added"),
+			createChangedFile("src/file5.ts", "added"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		const rootParent = result.candidates.find(
+			(c) => c.node.file.path === "AGENTS.md",
+		);
+		expect(rootParent?.recommendUpdate).toBe(true);
+	});
+
+	test("recommends parent update for large number of changed files (10+)", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		// 10 modified files in src/
+		const changedFiles = Array.from({ length: 10 }, (_, i) =>
+			createChangedFile(`src/file${i}.ts`, "modified"),
+		);
+		const diff = createDiff(changedFiles);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		const rootParent = result.candidates.find(
+			(c) => c.node.file.path === "AGENTS.md",
+		);
+		expect(rootParent?.recommendUpdate).toBe(true);
+	});
+
+	test("orders candidates by depth descending (deepest first)", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+			createIntentFile("packages/api/routes/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/routes/users.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		// Should be ordered: packages/api/AGENTS.md, packages/AGENTS.md, AGENTS.md
+		expect(result.candidates.map((c) => c.node.file.path)).toEqual([
+			"packages/api/AGENTS.md",
+			"packages/AGENTS.md",
+			"AGENTS.md",
+		]);
+	});
+
+	test("aggregates statistics across children correctly", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+			createIntentFile("packages/web/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts", "modified", 20, 5),
+			createChangedFile("packages/api/routes.ts", "added", 50, 0),
+			createChangedFile("packages/web/App.tsx", "modified", 30, 10),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		const packagesParent = result.candidates.find(
+			(c) => c.node.file.path === "packages/AGENTS.md",
+		);
+		expect(packagesParent?.totalChangedFilesInChildren).toBe(3);
+		expect(packagesParent?.totalAdditionsInChildren).toBe(100); // 20 + 50 + 30
+		expect(packagesParent?.totalDeletionsInChildren).toBe(15); // 5 + 0 + 10
+	});
+
+	test("handles complex hierarchy with multiple parent chains", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts"),
+			createChangedFile("src/index.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		// Root AGENTS.md is parent of both chains
+		// packages/AGENTS.md is parent only of packages/api
+		const rootParent = result.candidates.find(
+			(c) => c.node.file.path === "AGENTS.md",
+		);
+		const packagesParent = result.candidates.find(
+			(c) => c.node.file.path === "packages/AGENTS.md",
+		);
+
+		// Root has 2 updated children (src/AGENTS.md and packages/api/AGENTS.md)
+		expect(rootParent?.updatedChildren).toHaveLength(2);
+		// packages/AGENTS.md has 1 updated child
+		expect(packagesParent?.updatedChildren).toHaveLength(1);
+	});
+
+	test("provides meaningful recommendation reasons", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+			createIntentFile("packages/web/AGENTS.md"),
+			createIntentFile("packages/core/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts"),
+			createChangedFile("packages/web/App.tsx"),
+			createChangedFile("packages/core/index.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const directUpdates = determineNodesNeedingUpdate(mapping);
+
+		const result = reviewParentNodes(directUpdates);
+
+		const packagesParent = result.candidates.find(
+			(c) => c.node.file.path === "packages/AGENTS.md",
+		);
+		expect(packagesParent?.recommendationReason).toContain(
+			"Multiple child nodes",
+		);
+		expect(packagesParent?.recommendationReason).toContain("3");
 	});
 });

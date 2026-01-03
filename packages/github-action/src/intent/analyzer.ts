@@ -9,6 +9,7 @@ import type { PRChangedFile, PRDiff } from "../github/context";
 import type { IntentLayerIgnore } from "../patterns/ignore";
 import {
 	findCoveringNode,
+	getAncestors,
 	type IntentHierarchy,
 	type IntentNode,
 } from "./hierarchy";
@@ -444,5 +445,196 @@ export function filterIgnoredFiles(
 			ignoredFiles: 0,
 			affectedNodes,
 		},
+	};
+}
+
+/**
+ * Information about a parent node that may need review due to descendant changes.
+ */
+export interface ParentNodeReviewCandidate {
+	/** The parent intent node that may need review */
+	node: IntentNode;
+	/** Child nodes that were directly updated (triggered this parent review) */
+	updatedChildren: NodeUpdateCandidate[];
+	/** Total number of files changed across all updated children */
+	totalChangedFilesInChildren: number;
+	/** Total additions across all updated children */
+	totalAdditionsInChildren: number;
+	/** Total deletions across all updated children */
+	totalDeletionsInChildren: number;
+	/** Whether this parent is recommended for update (conservative default: false) */
+	recommendUpdate: boolean;
+	/** Reason for the recommendation */
+	recommendationReason: string;
+}
+
+/**
+ * Result of reviewing parent nodes for potential updates.
+ */
+export interface ParentNodesReviewResult {
+	/** Parent nodes that may need review, ordered from deepest to shallowest */
+	candidates: ParentNodeReviewCandidate[];
+	/** Total number of parent nodes identified for potential review */
+	totalParentNodes: number;
+	/** Whether any parent nodes are recommended for update */
+	hasRecommendedUpdates: boolean;
+}
+
+/**
+ * Review parent nodes for potential updates based on changes to their descendants.
+ *
+ * This function examines the parent nodes of all nodes that need direct updates
+ * and determines whether those parents should also be reviewed/updated. By design,
+ * this function is conservative - it defaults to NOT recommending parent updates
+ * unless there's a clear reason to do so.
+ *
+ * The philosophy is that changes to child nodes typically only affect the local
+ * context, and parent nodes (which provide broader context) should usually remain
+ * stable unless:
+ * - Multiple children are updated (indicates broader changes)
+ * - Significant structural changes occurred (many files added/removed)
+ *
+ * @param directUpdates - The result of determining which nodes need direct updates
+ * @returns Information about parent nodes that may need review
+ */
+export function reviewParentNodes(
+	directUpdates: NodesNeedingUpdateResult,
+): ParentNodesReviewResult {
+	// Collect all unique parent nodes and their associated child updates
+	const parentToChildren = new Map<string, NodeUpdateCandidate[]>();
+
+	for (const candidate of directUpdates.candidates) {
+		const ancestors = getAncestors(candidate.node);
+		for (const ancestor of ancestors) {
+			const parentPath = ancestor.file.path;
+			if (!parentToChildren.has(parentPath)) {
+				parentToChildren.set(parentPath, []);
+			}
+			parentToChildren.get(parentPath)!.push(candidate);
+		}
+	}
+
+	// Build parent review candidates
+	const candidates: ParentNodeReviewCandidate[] = [];
+
+	for (const [parentPath, children] of parentToChildren) {
+		// Get the actual parent node from one of the children's ancestors
+		const parentNode = children[0]!.node.parent
+			? findParentByPath(children[0]!.node, parentPath)
+			: undefined;
+
+		if (!parentNode) {
+			continue;
+		}
+
+		// Calculate aggregate statistics across children
+		let totalChangedFiles = 0;
+		let totalAdditions = 0;
+		let totalDeletions = 0;
+		let structuralChanges = 0; // Files added or removed
+
+		for (const child of children) {
+			totalChangedFiles += child.changedFiles.length;
+			totalAdditions += child.changeSummary.totalAdditions;
+			totalDeletions += child.changeSummary.totalDeletions;
+			structuralChanges +=
+				child.changeSummary.filesAdded + child.changeSummary.filesRemoved;
+		}
+
+		// Determine recommendation (conservative by default)
+		const { recommendUpdate, recommendationReason } =
+			determineParentRecommendation(
+				children,
+				totalChangedFiles,
+				structuralChanges,
+			);
+
+		candidates.push({
+			node: parentNode,
+			updatedChildren: children,
+			totalChangedFilesInChildren: totalChangedFiles,
+			totalAdditionsInChildren: totalAdditions,
+			totalDeletionsInChildren: totalDeletions,
+			recommendUpdate,
+			recommendationReason,
+		});
+	}
+
+	// Sort by depth descending (deepest parents first), then by path
+	candidates.sort((a, b) => {
+		if (a.node.depth !== b.node.depth) {
+			return b.node.depth - a.node.depth;
+		}
+		return a.node.file.path.localeCompare(b.node.file.path);
+	});
+
+	const hasRecommendedUpdates = candidates.some((c) => c.recommendUpdate);
+
+	return {
+		candidates,
+		totalParentNodes: candidates.length,
+		hasRecommendedUpdates,
+	};
+}
+
+/**
+ * Find a parent node by its path by traversing up from a starting node.
+ */
+function findParentByPath(
+	startNode: IntentNode,
+	targetPath: string,
+): IntentNode | undefined {
+	let current = startNode.parent;
+	while (current) {
+		if (current.file.path === targetPath) {
+			return current;
+		}
+		current = current.parent;
+	}
+	return undefined;
+}
+
+/**
+ * Determine whether to recommend updating a parent node.
+ *
+ * This is intentionally conservative - parent updates should be rare.
+ * The LLM will ultimately decide, but we provide a recommendation.
+ */
+function determineParentRecommendation(
+	children: NodeUpdateCandidate[],
+	totalChangedFiles: number,
+	structuralChanges: number,
+): { recommendUpdate: boolean; recommendationReason: string } {
+	// Default: no recommendation to update
+	const noUpdateReason =
+		"Parent nodes typically don't need updates for localized changes";
+
+	// Condition 1: Multiple children updated (indicates cross-cutting change)
+	if (children.length >= 3) {
+		return {
+			recommendUpdate: true,
+			recommendationReason: `Multiple child nodes (${children.length}) were updated, indicating potential cross-cutting changes`,
+		};
+	}
+
+	// Condition 2: Significant structural changes across children
+	if (structuralChanges >= 5) {
+		return {
+			recommendUpdate: true,
+			recommendationReason: `Significant structural changes (${structuralChanges} files added/removed) may affect parent context`,
+		};
+	}
+
+	// Condition 3: Large number of changed files (indicates major refactoring)
+	if (totalChangedFiles >= 10) {
+		return {
+			recommendUpdate: true,
+			recommendationReason: `Large number of changed files (${totalChangedFiles}) in child nodes may warrant parent review`,
+		};
+	}
+
+	return {
+		recommendUpdate: false,
+		recommendationReason: noUpdateReason,
 	};
 }
