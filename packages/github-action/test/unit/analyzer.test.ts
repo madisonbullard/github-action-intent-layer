@@ -3,6 +3,7 @@ import type { PRChangedFile, PRDiff } from "../../src/github/context";
 import {
 	determineNodesNeedingUpdate,
 	filterIgnoredFiles,
+	generateUpdateReason,
 	getAffectedDirectories,
 	getAffectedNodes,
 	getChangedFilesForNode,
@@ -13,6 +14,7 @@ import {
 	identifySemanticBoundaries,
 	mapChangedFilesToNodes,
 	mapChangedFileToCoveringNode,
+	type NodeChangeSummary,
 	reviewParentNodes,
 	UNCOVERED_KEY,
 } from "../../src/intent/analyzer";
@@ -707,6 +709,224 @@ describe("determineNodesNeedingUpdate", () => {
 			"packages/api/AGENTS.md",
 			"packages/web/AGENTS.md",
 		]);
+	});
+});
+
+describe("generateUpdateReason", () => {
+	/**
+	 * Helper to create a NodeChangeSummary for testing.
+	 */
+	function createChangeSummary(
+		options: Partial<NodeChangeSummary> = {},
+	): NodeChangeSummary {
+		return {
+			filesAdded: options.filesAdded ?? 0,
+			filesModified: options.filesModified ?? 0,
+			filesRemoved: options.filesRemoved ?? 0,
+			filesRenamed: options.filesRenamed ?? 0,
+			totalAdditions: options.totalAdditions ?? 0,
+			totalDeletions: options.totalDeletions ?? 0,
+		};
+	}
+
+	/**
+	 * Helper to create mock ChangedFileCoverage array for testing.
+	 */
+	function createMockCoverageArray(count: number) {
+		return Array.from({ length: count }, (_, i) => ({
+			file: createChangedFile(`file${i}.ts`),
+			coveringNode: undefined,
+			isIgnored: false,
+		}));
+	}
+
+	test("generates reason for files added only", () => {
+		const summary = createChangeSummary({ filesAdded: 3, totalAdditions: 100 });
+		const files = createMockCoverageArray(3);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("3 files added");
+		expect(reason).toContain("new functionality introduced");
+	});
+
+	test("generates reason for single file added", () => {
+		const summary = createChangeSummary({ filesAdded: 1, totalAdditions: 50 });
+		const files = createMockCoverageArray(1);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("1 file added");
+		expect(reason).not.toContain("1 files added");
+	});
+
+	test("generates reason for files modified only", () => {
+		const summary = createChangeSummary({
+			filesModified: 2,
+			totalAdditions: 30,
+			totalDeletions: 20,
+		});
+		const files = createMockCoverageArray(2);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("2 files modified");
+		expect(reason).toContain("code updates");
+	});
+
+	test("generates reason for significant modifications", () => {
+		const summary = createChangeSummary({
+			filesModified: 2,
+			totalAdditions: 80,
+			totalDeletions: 40,
+		});
+		const files = createMockCoverageArray(2);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("2 files modified");
+		expect(reason).toContain("significant code changes");
+		expect(reason).toContain("80 lines added");
+		expect(reason).toContain("40 lines deleted");
+	});
+
+	test("generates reason for files removed only", () => {
+		const summary = createChangeSummary({
+			filesRemoved: 2,
+			totalDeletions: 100,
+		});
+		const files = createMockCoverageArray(2);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("2 files removed");
+		expect(reason).toContain("functionality removed or consolidated");
+	});
+
+	test("generates reason for files renamed", () => {
+		const summary = createChangeSummary({ filesRenamed: 1 });
+		const files = createMockCoverageArray(1);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("1 file renamed");
+	});
+
+	test("generates reason for mixed changes", () => {
+		const summary = createChangeSummary({
+			filesAdded: 2,
+			filesModified: 3,
+			filesRemoved: 1,
+			totalAdditions: 100,
+			totalDeletions: 50,
+		});
+		const files = createMockCoverageArray(6);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("2 files added");
+		expect(reason).toContain("3 files modified");
+		expect(reason).toContain("1 file removed");
+		expect(reason).toContain("100 lines added");
+		expect(reason).toContain("50 lines deleted");
+	});
+
+	test("includes line counts for significant changes (50+ lines)", () => {
+		const summary = createChangeSummary({
+			filesModified: 1,
+			totalAdditions: 30,
+			totalDeletions: 25,
+		});
+		const files = createMockCoverageArray(1);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("30 lines added");
+		expect(reason).toContain("25 lines deleted");
+	});
+
+	test("excludes line counts for small changes (< 50 lines)", () => {
+		const summary = createChangeSummary({
+			filesModified: 1,
+			totalAdditions: 20,
+			totalDeletions: 10,
+		});
+		const files = createMockCoverageArray(1);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).not.toContain("lines added");
+		expect(reason).not.toContain("lines deleted");
+	});
+
+	test("handles singular line counts correctly", () => {
+		const summary = createChangeSummary({
+			filesAdded: 1,
+			totalAdditions: 49,
+			totalDeletions: 1,
+		});
+		const files = createMockCoverageArray(1);
+
+		const reason = generateUpdateReason(summary, files);
+
+		// "49 lines added, 1 line deleted" (singular for 1)
+		expect(reason).toContain("49 lines added");
+		expect(reason).toContain("1 line deleted");
+		expect(reason).not.toContain("1 lines deleted");
+	});
+
+	test("provides fallback for edge case with no categorized changes", () => {
+		// This is an edge case where changeSummary counts are all 0
+		// but we still have files (shouldn't happen in practice)
+		const summary = createChangeSummary({});
+		const files = createMockCoverageArray(2);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("2 files changed in coverage area");
+	});
+
+	test("handles single file fallback correctly", () => {
+		const summary = createChangeSummary({});
+		const files = createMockCoverageArray(1);
+
+		const reason = generateUpdateReason(summary, files);
+
+		expect(reason).toContain("1 file changed in coverage area");
+		expect(reason).not.toContain("1 files changed");
+	});
+});
+
+describe("determineNodesNeedingUpdate - updateReason", () => {
+	test("populates updateReason for candidates", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("src/new-file.ts", "added", 50, 0),
+			createChangedFile("src/existing.ts", "modified", 20, 10),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.candidates).toHaveLength(1);
+		expect(result.candidates[0]!.updateReason).toBeDefined();
+		expect(result.candidates[0]!.updateReason).toContain("1 file added");
+		expect(result.candidates[0]!.updateReason).toContain("1 file modified");
+	});
+
+	test("updateReason reflects significant changes", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("src/big-change.ts", "modified", 100, 50),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.candidates[0]!.updateReason).toContain("significant");
+		expect(result.candidates[0]!.updateReason).toContain("100 lines added");
 	});
 });
 

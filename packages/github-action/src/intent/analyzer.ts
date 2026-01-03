@@ -247,6 +247,8 @@ export interface NodeUpdateCandidate {
 	changedFiles: ChangedFileCoverage[];
 	/** Summary of changes affecting this node */
 	changeSummary: NodeChangeSummary;
+	/** Human-readable explanation of why this node needs an update */
+	updateReason: string;
 }
 
 /**
@@ -316,10 +318,14 @@ export function determineNodesNeedingUpdate(
 		// Calculate change summary for this node
 		const changeSummary = calculateChangeSummary(nonIgnoredFiles);
 
+		// Generate human-readable update reason
+		const updateReason = generateUpdateReason(changeSummary, nonIgnoredFiles);
+
 		candidates.push({
 			node,
 			changedFiles: nonIgnoredFiles,
 			changeSummary,
+			updateReason,
 		});
 	}
 
@@ -331,6 +337,85 @@ export function determineNodesNeedingUpdate(
 		totalNodes: candidates.length,
 		hasUpdates: candidates.length > 0,
 	};
+}
+
+/**
+ * Generate a human-readable update reason for a node based on its changes.
+ *
+ * This function creates a concise but informative explanation of why
+ * an intent node needs to be updated, based on the types and magnitude
+ * of changes affecting its coverage area.
+ *
+ * @param changeSummary - Summary of changes affecting the node
+ * @param changedFiles - The changed files covered by this node
+ * @returns Human-readable update reason string
+ */
+export function generateUpdateReason(
+	changeSummary: NodeChangeSummary,
+	changedFiles: ChangedFileCoverage[],
+): string {
+	const reasons: string[] = [];
+
+	// Collect file type descriptions
+	const fileDescriptions: string[] = [];
+	if (changeSummary.filesAdded > 0) {
+		fileDescriptions.push(
+			`${changeSummary.filesAdded} file${changeSummary.filesAdded > 1 ? "s" : ""} added`,
+		);
+	}
+	if (changeSummary.filesModified > 0) {
+		fileDescriptions.push(
+			`${changeSummary.filesModified} file${changeSummary.filesModified > 1 ? "s" : ""} modified`,
+		);
+	}
+	if (changeSummary.filesRemoved > 0) {
+		fileDescriptions.push(
+			`${changeSummary.filesRemoved} file${changeSummary.filesRemoved > 1 ? "s" : ""} removed`,
+		);
+	}
+	if (changeSummary.filesRenamed > 0) {
+		fileDescriptions.push(
+			`${changeSummary.filesRenamed} file${changeSummary.filesRenamed > 1 ? "s" : ""} renamed`,
+		);
+	}
+
+	// Build the main reason based on file changes
+	if (fileDescriptions.length > 0) {
+		reasons.push(fileDescriptions.join(", "));
+	}
+
+	// Add line change information for significant changes
+	const totalChanges =
+		changeSummary.totalAdditions + changeSummary.totalDeletions;
+	if (totalChanges >= 50) {
+		reasons.push(
+			`${changeSummary.totalAdditions} line${changeSummary.totalAdditions !== 1 ? "s" : ""} added, ${changeSummary.totalDeletions} line${changeSummary.totalDeletions !== 1 ? "s" : ""} deleted`,
+		);
+	}
+
+	// Add specific context based on change patterns
+	if (changeSummary.filesAdded > 0 && changeSummary.filesModified === 0) {
+		reasons.push("new functionality introduced");
+	} else if (changeSummary.filesRemoved > 0 && changeSummary.filesAdded === 0) {
+		reasons.push("functionality removed or consolidated");
+	} else if (
+		changeSummary.filesModified > 0 &&
+		changeSummary.filesAdded === 0 &&
+		changeSummary.filesRemoved === 0
+	) {
+		if (totalChanges >= 100) {
+			reasons.push("significant code changes");
+		} else {
+			reasons.push("code updates");
+		}
+	}
+
+	// Fallback if no reasons were generated
+	if (reasons.length === 0) {
+		return `${changedFiles.length} file${changedFiles.length > 1 ? "s" : ""} changed in coverage area`;
+	}
+
+	return reasons.join("; ");
 }
 
 /**
