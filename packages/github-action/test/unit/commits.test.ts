@@ -9,11 +9,14 @@ import {
 	generateAddCommitMessage,
 	generateBatchCommitMessage,
 	generateIntentLayerBranchName,
+	generateIntentLayerPRBody,
+	generateIntentLayerPRTitle,
 	generateRevertCommitMessage,
 	generateUpdateCommitMessage,
 	getCommitPrefix,
 	getFileSha,
 	isIntentCommit,
+	openIntentLayerPullRequest,
 	parseIntentCommitMessage,
 	type RevertCommitOptions,
 } from "../../src/github/commits";
@@ -1845,5 +1848,212 @@ describe("generateBatchCommitMessage", () => {
 	test("returns standard batch commit message", () => {
 		const message = generateBatchCommitMessage();
 		expect(message).toBe("[INTENT] apply intent layer updates");
+	});
+});
+
+describe("generateIntentLayerPRTitle", () => {
+	test("generates title with PR number", () => {
+		const title = generateIntentLayerPRTitle(42);
+		expect(title).toBe("[Intent Layer] Updates for PR #42");
+	});
+
+	test("handles large PR numbers", () => {
+		const title = generateIntentLayerPRTitle(99999);
+		expect(title).toBe("[Intent Layer] Updates for PR #99999");
+	});
+
+	test("handles PR number 1", () => {
+		const title = generateIntentLayerPRTitle(1);
+		expect(title).toBe("[Intent Layer] Updates for PR #1");
+	});
+});
+
+describe("generateIntentLayerPRBody", () => {
+	test("generates body with PR number reference", () => {
+		const body = generateIntentLayerPRBody(42);
+
+		expect(body).toContain("#42");
+		expect(body).toContain("Intent Layer Updates");
+		expect(body).toContain("AGENTS.md");
+		expect(body).toContain("CLAUDE.md");
+	});
+
+	test("includes review instructions", () => {
+		const body = generateIntentLayerPRBody(100);
+
+		expect(body).toContain("How to review");
+		expect(body).toContain("Review the changes");
+	});
+
+	test("includes automation notice", () => {
+		const body = generateIntentLayerPRBody(1);
+
+		expect(body).toContain("automatically generated");
+		expect(body).toContain("Intent Layer GitHub Action");
+	});
+});
+
+describe("openIntentLayerPullRequest", () => {
+	test("creates PR with default title and body", async () => {
+		const mockCreatePullRequest = mock(
+			async (title: string, body: string, head: string, base: string) => ({
+				number: 99,
+				title,
+				html_url: "https://github.com/owner/repo/pull/99",
+				head: { ref: head },
+				base: { ref: base },
+			}),
+		);
+
+		const client = {
+			createPullRequest: mockCreatePullRequest,
+		} as unknown as GitHubClient;
+
+		const result = await openIntentLayerPullRequest(client, {
+			originalPrNumber: 42,
+			originalPrHeadBranch: "feature/my-changes",
+		});
+
+		expect(result.number).toBe(99);
+		expect(result.title).toBe("[Intent Layer] Updates for PR #42");
+		expect(result.url).toBe("https://github.com/owner/repo/pull/99");
+		expect(result.headBranch).toBe("intent-layer/42");
+		expect(result.baseBranch).toBe("feature/my-changes");
+
+		expect(mockCreatePullRequest).toHaveBeenCalledWith(
+			"[Intent Layer] Updates for PR #42",
+			expect.stringContaining("#42"),
+			"intent-layer/42",
+			"feature/my-changes",
+		);
+	});
+
+	test("creates PR with custom title", async () => {
+		const mockCreatePullRequest = mock(
+			async (title: string, _body: string, _head: string, _base: string) => ({
+				number: 100,
+				title,
+				html_url: "https://github.com/owner/repo/pull/100",
+			}),
+		);
+
+		const client = {
+			createPullRequest: mockCreatePullRequest,
+		} as unknown as GitHubClient;
+
+		const result = await openIntentLayerPullRequest(client, {
+			originalPrNumber: 42,
+			originalPrHeadBranch: "feature/my-changes",
+			title: "Custom Intent Layer Title",
+		});
+
+		expect(result.title).toBe("Custom Intent Layer Title");
+		expect(mockCreatePullRequest).toHaveBeenCalledWith(
+			"Custom Intent Layer Title",
+			expect.any(String),
+			"intent-layer/42",
+			"feature/my-changes",
+		);
+	});
+
+	test("creates PR with custom body", async () => {
+		let capturedBody = "";
+		const mockCreatePullRequest = mock(
+			async (title: string, body: string, _head: string, _base: string) => {
+				capturedBody = body;
+				return {
+					number: 101,
+					title,
+					html_url: "https://github.com/owner/repo/pull/101",
+				};
+			},
+		);
+
+		const client = {
+			createPullRequest: mockCreatePullRequest,
+		} as unknown as GitHubClient;
+
+		await openIntentLayerPullRequest(client, {
+			originalPrNumber: 42,
+			originalPrHeadBranch: "feature/my-changes",
+			body: "Custom body content for the PR",
+		});
+
+		expect(capturedBody).toBe("Custom body content for the PR");
+	});
+
+	test("creates PR with both custom title and body", async () => {
+		let capturedTitle = "";
+		let capturedBody = "";
+		const mockCreatePullRequest = mock(
+			async (title: string, body: string, _head: string, _base: string) => {
+				capturedTitle = title;
+				capturedBody = body;
+				return {
+					number: 102,
+					title,
+					html_url: "https://github.com/owner/repo/pull/102",
+				};
+			},
+		);
+
+		const client = {
+			createPullRequest: mockCreatePullRequest,
+		} as unknown as GitHubClient;
+
+		await openIntentLayerPullRequest(client, {
+			originalPrNumber: 42,
+			originalPrHeadBranch: "feature/my-changes",
+			title: "My Custom Title",
+			body: "My custom body",
+		});
+
+		expect(capturedTitle).toBe("My Custom Title");
+		expect(capturedBody).toBe("My custom body");
+	});
+
+	test("propagates error when PR creation fails", async () => {
+		const mockCreatePullRequest = mock(async () => {
+			throw new Error("A pull request already exists for this branch");
+		});
+
+		const client = {
+			createPullRequest: mockCreatePullRequest,
+		} as unknown as GitHubClient;
+
+		await expect(
+			openIntentLayerPullRequest(client, {
+				originalPrNumber: 42,
+				originalPrHeadBranch: "feature/my-changes",
+			}),
+		).rejects.toThrow("A pull request already exists for this branch");
+	});
+
+	test("uses correct branch naming convention", async () => {
+		let capturedHead = "";
+		let capturedBase = "";
+		const mockCreatePullRequest = mock(
+			async (_title: string, _body: string, head: string, base: string) => {
+				capturedHead = head;
+				capturedBase = base;
+				return {
+					number: 103,
+					title: "Title",
+					html_url: "https://github.com/owner/repo/pull/103",
+				};
+			},
+		);
+
+		const client = {
+			createPullRequest: mockCreatePullRequest,
+		} as unknown as GitHubClient;
+
+		await openIntentLayerPullRequest(client, {
+			originalPrNumber: 789,
+			originalPrHeadBranch: "develop",
+		});
+
+		expect(capturedHead).toBe("intent-layer/789");
+		expect(capturedBase).toBe("develop");
 	});
 });
