@@ -4,6 +4,8 @@ import {
 	checkSymlinkConfig,
 	SymlinkConflictError,
 	validateAndFailOnSymlinkConflict,
+	validatePlatformForSymlink,
+	WindowsSymlinkError,
 } from "../../src/intent/validation";
 
 // Mock @actions/core
@@ -294,5 +296,117 @@ describe("SymlinkConflictError", () => {
 		const error = new SymlinkConflictError("test", []);
 		expect(error instanceof Error).toBe(true);
 		expect(error instanceof SymlinkConflictError).toBe(true);
+	});
+});
+
+describe("validatePlatformForSymlink", () => {
+	beforeEach(() => {
+		mockSetFailed.mockClear();
+		mockError.mockClear();
+	});
+
+	test("does not fail when symlink is disabled on Windows", () => {
+		// Should not throw when symlink is disabled, even on Windows
+		expect(() => {
+			validatePlatformForSymlink(false, "win32");
+		}).not.toThrow();
+
+		expect(mockSetFailed).not.toHaveBeenCalled();
+		expect(mockError).not.toHaveBeenCalled();
+	});
+
+	test("does not fail when symlink is enabled on Linux", () => {
+		// Should not throw when on Linux
+		expect(() => {
+			validatePlatformForSymlink(true, "linux");
+		}).not.toThrow();
+
+		expect(mockSetFailed).not.toHaveBeenCalled();
+		expect(mockError).not.toHaveBeenCalled();
+	});
+
+	test("does not fail when symlink is enabled on macOS", () => {
+		// Should not throw when on macOS
+		expect(() => {
+			validatePlatformForSymlink(true, "darwin");
+		}).not.toThrow();
+
+		expect(mockSetFailed).not.toHaveBeenCalled();
+		expect(mockError).not.toHaveBeenCalled();
+	});
+
+	test("fails action when symlink is enabled on Windows", () => {
+		// Should throw WindowsSymlinkError
+		expect(() => {
+			validatePlatformForSymlink(true, "win32");
+		}).toThrow(WindowsSymlinkError);
+
+		expect(mockSetFailed).toHaveBeenCalledTimes(1);
+		expect(mockError).toHaveBeenCalledTimes(1);
+	});
+
+	test("error message includes platform information", () => {
+		try {
+			validatePlatformForSymlink(true, "win32");
+		} catch {
+			// Expected
+		}
+
+		expect(mockSetFailed).toHaveBeenCalledWith(
+			expect.stringContaining("Windows"),
+		);
+		expect(mockSetFailed).toHaveBeenCalledWith(
+			expect.stringContaining("elevated permissions"),
+		);
+	});
+
+	test("error message includes resolution options", () => {
+		try {
+			validatePlatformForSymlink(true, "win32");
+		} catch {
+			// Expected
+		}
+
+		expect(mockSetFailed).toHaveBeenCalledWith(
+			expect.stringContaining("Resolution options"),
+		);
+		expect(mockSetFailed).toHaveBeenCalledWith(
+			expect.stringContaining("symlink: false"),
+		);
+		expect(mockSetFailed).toHaveBeenCalledWith(
+			expect.stringContaining("ubuntu-latest"),
+		);
+	});
+
+	test("throws WindowsSymlinkError with correct name", () => {
+		let thrownError: WindowsSymlinkError | undefined;
+		try {
+			validatePlatformForSymlink(true, "win32");
+		} catch (error) {
+			if (error instanceof WindowsSymlinkError) {
+				thrownError = error;
+			}
+		}
+
+		expect(thrownError).toBeDefined();
+		expect(thrownError?.name).toBe("WindowsSymlinkError");
+	});
+});
+
+describe("WindowsSymlinkError", () => {
+	test("has correct name property", () => {
+		const error = new WindowsSymlinkError("test message");
+		expect(error.name).toBe("WindowsSymlinkError");
+	});
+
+	test("stores error message", () => {
+		const error = new WindowsSymlinkError("Custom error message");
+		expect(error.message).toBe("Custom error message");
+	});
+
+	test("is an instance of Error", () => {
+		const error = new WindowsSymlinkError("test");
+		expect(error instanceof Error).toBe(true);
+		expect(error instanceof WindowsSymlinkError).toBe(true);
 	});
 });

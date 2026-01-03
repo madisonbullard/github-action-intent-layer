@@ -30,6 +30,23 @@ export class SymlinkConflictError extends Error {
 }
 
 /**
+ * Error class for Windows platform symlink incompatibility.
+ *
+ * This error is thrown when `symlink: true` is configured but the action
+ * is running on Windows, where symlinks require elevated permissions.
+ *
+ * Per PLAN.md Design Decision #4:
+ * "If `symlink: true` on Windows, fail action with clear error
+ * (Windows symlinks require elevated permissions)"
+ */
+export class WindowsSymlinkError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "WindowsSymlinkError";
+	}
+}
+
+/**
  * Validate symlink configuration and fail the action if there's a conflict.
  *
  * This function checks if the `symlink: true` configuration is compatible
@@ -129,4 +146,67 @@ export function checkSymlinkConfig(
 	symlinkEnabled: boolean,
 ): SymlinkValidationResult {
 	return validateSymlinkConfig(detectionResult, symlinkEnabled);
+}
+
+/**
+ * Validate that the current platform supports symlinks when enabled.
+ *
+ * Windows symlinks require elevated permissions (Developer Mode or Admin),
+ * which GitHub Actions runners do not have by default. This function
+ * fails the action with a clear error message when symlinks are requested
+ * on Windows.
+ *
+ * Per PLAN.md task 12.8:
+ * "Fail action if `symlink: true` on Windows (unsupported platform)"
+ *
+ * @param symlinkEnabled - Whether `symlink: true` is configured
+ * @param platform - The current platform (defaults to process.platform)
+ * @throws WindowsSymlinkError if symlinks are enabled on Windows
+ */
+export function validatePlatformForSymlink(
+	symlinkEnabled: boolean,
+	platform: NodeJS.Platform = process.platform,
+): void {
+	if (symlinkEnabled && platform === "win32") {
+		const errorMessage = formatWindowsSymlinkError();
+
+		// Log the error for debugging
+		core.error(errorMessage);
+
+		// Fail the GitHub Action with clear message
+		core.setFailed(errorMessage);
+
+		// Throw an error for programmatic handling
+		throw new WindowsSymlinkError(errorMessage);
+	}
+}
+
+/**
+ * Format a detailed error message for Windows symlink incompatibility.
+ *
+ * @returns Formatted error message with resolution steps
+ */
+function formatWindowsSymlinkError(): string {
+	const lines: string[] = [];
+
+	lines.push("Intent Layer Windows Platform Error");
+	lines.push("");
+	lines.push("Symlinks are not supported on Windows GitHub Actions runners.");
+	lines.push(
+		"Windows symlinks require elevated permissions (Developer Mode or Admin),",
+	);
+	lines.push("which are not available in the GitHub Actions environment.");
+	lines.push("");
+	lines.push("Resolution options:");
+	lines.push(
+		"  1. Disable symlinks: Set 'symlink: false' in your action configuration",
+	);
+	lines.push(
+		"  2. Use a different runner: Run this job on 'ubuntu-latest' or 'macos-latest'",
+	);
+	lines.push(
+		"  3. Manage files separately: Set 'files: agents' or 'files: claude' to manage only one file type",
+	);
+
+	return lines.join("\n");
 }
