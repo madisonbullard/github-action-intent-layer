@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
 	DEFAULT_DEBOUNCE_DELAY_MS,
 	debounceCheckboxToggle,
+	handleCheckedCheckbox,
+	reconstructIntentUpdateFromComment,
 	sleep,
 	validateCheckboxEvent,
 } from "../../src/github/checkbox-handler";
@@ -336,5 +338,438 @@ describe("validateCheckboxEvent", () => {
 		const result = validateCheckboxEvent(payload);
 
 		expect(result).toBeNull();
+	});
+});
+
+describe("reconstructIntentUpdateFromComment", () => {
+	test("reconstructs create update from comment with suggested content section", () => {
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			headSha: "abc123",
+		};
+		const commentBody = `${INTENT_LAYER_MARKER_PREFIX} node=packages%2Fapi%2FAGENTS.md appliedCommit= headSha=abc123 ${INTENT_LAYER_MARKER_SUFFIX}
+
+### Suggested Content
+
+\`\`\`markdown
+# API Package
+
+This is the suggested content for the API package.
+\`\`\`
+
+Reason: New package needs documentation
+
+---
+
+- [ ] Apply this change`;
+
+		const result = reconstructIntentUpdateFromComment(
+			commentBody,
+			markerData,
+			"create",
+		);
+
+		expect(result.nodePath).toBe("packages/api/AGENTS.md");
+		expect(result.action).toBe("create");
+		expect(result.suggestedContent).toContain("# API Package");
+		expect(result.suggestedContent).toContain(
+			"This is the suggested content for the API package.",
+		);
+		expect(result.reason).toBe("New package needs documentation");
+		expect(result.currentContent).toBeUndefined();
+	});
+
+	test("reconstructs update from comment with current and suggested content", () => {
+		const markerData = {
+			nodePath: "src/AGENTS.md",
+			otherNodePath: "src/CLAUDE.md",
+			headSha: "def456",
+		};
+		const commentBody = `${INTENT_LAYER_MARKER_PREFIX} node=src%2FAGENTS.md otherNode=src%2FCLAUDE.md appliedCommit= headSha=def456 ${INTENT_LAYER_MARKER_SUFFIX}
+
+### Current Content
+
+\`\`\`markdown
+# Source Directory
+
+Old content here.
+\`\`\`
+
+### Suggested Content
+
+\`\`\`markdown
+# Source Directory
+
+Updated content with more details.
+\`\`\`
+
+Reason: Updated to reflect new architecture
+
+---
+
+- [ ] Apply this change`;
+
+		const result = reconstructIntentUpdateFromComment(
+			commentBody,
+			markerData,
+			"update",
+		);
+
+		expect(result.nodePath).toBe("src/AGENTS.md");
+		expect(result.otherNodePath).toBe("src/CLAUDE.md");
+		expect(result.action).toBe("update");
+		expect(result.suggestedContent).toContain(
+			"Updated content with more details",
+		);
+		expect(result.currentContent).toContain("Old content here");
+		expect(result.reason).toBe("Updated to reflect new architecture");
+	});
+
+	test("extracts content from diff block when sections are not present", () => {
+		const markerData = {
+			nodePath: "lib/AGENTS.md",
+			headSha: "ghi789",
+		};
+		const commentBody = `${INTENT_LAYER_MARKER_PREFIX} node=lib%2FAGENTS.md appliedCommit= headSha=ghi789 ${INTENT_LAYER_MARKER_SUFFIX}
+
+\`\`\`diff
+--- a/lib/AGENTS.md
++++ b/lib/AGENTS.md
+-Old line
++New line
++Another new line
+\`\`\`
+
+---
+
+- [ ] Apply this change`;
+
+		const result = reconstructIntentUpdateFromComment(
+			commentBody,
+			markerData,
+			"update",
+		);
+
+		expect(result.nodePath).toBe("lib/AGENTS.md");
+		expect(result.action).toBe("update");
+		// Should extract added lines
+		expect(result.suggestedContent).toContain("New line");
+		expect(result.suggestedContent).toContain("Another new line");
+		// Should extract removed lines as current content
+		expect(result.currentContent).toContain("Old line");
+	});
+
+	test("uses default reason when not found in comment", () => {
+		const markerData = {
+			nodePath: "test/AGENTS.md",
+			headSha: "jkl012",
+		};
+		const commentBody = `${INTENT_LAYER_MARKER_PREFIX} node=test%2FAGENTS.md appliedCommit= headSha=jkl012 ${INTENT_LAYER_MARKER_SUFFIX}
+
+### Suggested Content
+
+\`\`\`markdown
+# Test content
+\`\`\`
+
+---
+
+- [ ] Apply this change`;
+
+		const result = reconstructIntentUpdateFromComment(
+			commentBody,
+			markerData,
+			"create",
+		);
+
+		expect(result.reason).toBe("Approved via checkbox");
+	});
+});
+
+describe("handleCheckedCheckbox", () => {
+	// Helper to create a comment body with full structure
+	function createFullCommentBody(options: {
+		nodePath?: string;
+		otherNodePath?: string;
+		headSha?: string;
+		appliedCommit?: string;
+		suggestedContent?: string;
+		currentContent?: string;
+		reason?: string;
+	}): string {
+		const nodePath = options.nodePath ?? "packages/api/AGENTS.md";
+		const headSha = options.headSha ?? "abc123";
+		const suggestedContent =
+			options.suggestedContent ?? "# API Package\n\nDefault content.";
+
+		const parts = [`node=${encodeURIComponent(nodePath)}`];
+		if (options.otherNodePath) {
+			parts.push(`otherNode=${encodeURIComponent(options.otherNodePath)}`);
+		}
+		parts.push(`appliedCommit=${options.appliedCommit ?? ""}`);
+		parts.push(`headSha=${headSha}`);
+
+		let content = `${INTENT_LAYER_MARKER_PREFIX} ${parts.join(" ")} ${INTENT_LAYER_MARKER_SUFFIX}
+
+`;
+
+		if (options.currentContent) {
+			content += `### Current Content
+
+\`\`\`markdown
+${options.currentContent}
+\`\`\`
+
+`;
+		}
+
+		content += `### Suggested Content
+
+\`\`\`markdown
+${suggestedContent}
+\`\`\`
+
+`;
+
+		if (options.reason) {
+			content += `Reason: ${options.reason}
+
+`;
+		}
+
+		content += `---
+
+- [x] Apply this change`;
+
+		return content;
+	}
+
+	test("marks comment as resolved when headSha doesn't match", async () => {
+		const commentBody = createFullCommentBody({
+			headSha: "old-sha-123",
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			headSha: "old-sha-123",
+		};
+
+		let updatedCommentBody = "";
+		const mockClient = {
+			updateComment: mock((id: number, body: string) => {
+				updatedCommentBody = body;
+				return Promise.resolve({ id, body });
+			}),
+		} as unknown as GitHubClient;
+
+		const result = await handleCheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			"new-sha-456", // Different from marker headSha
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.markedAsResolved).toBe(true);
+		expect(result.error).toContain("PR head has changed");
+		expect(result.error).toContain("old-sha-123");
+		expect(result.error).toContain("new-sha-456");
+		expect(updatedCommentBody).toContain("**RESOLVED**");
+	});
+
+	test("creates ADD commit when file doesn't exist", async () => {
+		const suggestedContent = "# New Package\n\nNew content here.";
+		const commentBody = createFullCommentBody({
+			headSha: "current-sha",
+			suggestedContent,
+			reason: "Adding new package docs",
+		});
+		const markerData = {
+			nodePath: "packages/new/AGENTS.md",
+			headSha: "current-sha",
+		};
+
+		let updatedCommentBody = "";
+		const mockClient = {
+			getFileContent: mock(() => {
+				const error = new Error("Not Found") as Error & { status: number };
+				error.status = 404;
+				return Promise.reject(error);
+			}),
+			createOrUpdateFile: mock(() =>
+				Promise.resolve({
+					commit: {
+						sha: "new-commit-sha",
+						html_url: "https://github.com/test/repo/commit/new-commit-sha",
+					},
+				}),
+			),
+			updateComment: mock((id: number, body: string) => {
+				updatedCommentBody = body;
+				return Promise.resolve({ id, body });
+			}),
+		} as unknown as GitHubClient;
+
+		const result = await handleCheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			"current-sha",
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.commitResult).toBeDefined();
+		expect(result.commitResult?.sha).toBe("new-commit-sha");
+		expect(result.commitResult?.message).toContain("[INTENT:ADD]");
+		// Verify the comment was updated with appliedCommit
+		expect(updatedCommentBody).toContain("appliedCommit=new-commit-sha");
+	});
+
+	test("creates UPDATE commit when file exists", async () => {
+		const currentContent = "# Existing Package\n\nOld content.";
+		const suggestedContent = "# Existing Package\n\nUpdated content.";
+		const commentBody = createFullCommentBody({
+			headSha: "current-sha",
+			currentContent,
+			suggestedContent,
+			reason: "Updating package docs",
+		});
+		const markerData = {
+			nodePath: "packages/existing/AGENTS.md",
+			headSha: "current-sha",
+		};
+
+		let updatedCommentBody = "";
+		const mockClient = {
+			getFileContent: mock(() =>
+				Promise.resolve({
+					sha: "existing-file-sha",
+					content: Buffer.from(currentContent).toString("base64"),
+				}),
+			),
+			createOrUpdateFile: mock(() =>
+				Promise.resolve({
+					commit: {
+						sha: "update-commit-sha",
+						html_url: "https://github.com/test/repo/commit/update-commit-sha",
+					},
+				}),
+			),
+			updateComment: mock((id: number, body: string) => {
+				updatedCommentBody = body;
+				return Promise.resolve({ id, body });
+			}),
+		} as unknown as GitHubClient;
+
+		const result = await handleCheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			"current-sha",
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.commitResult).toBeDefined();
+		expect(result.commitResult?.sha).toBe("update-commit-sha");
+		expect(result.commitResult?.message).toContain("[INTENT:UPDATE]");
+		// Verify the comment was updated with appliedCommit
+		expect(updatedCommentBody).toContain("appliedCommit=update-commit-sha");
+	});
+
+	test("returns error when commit creation fails", async () => {
+		const commentBody = createFullCommentBody({
+			headSha: "current-sha",
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			headSha: "current-sha",
+		};
+
+		const mockClient = {
+			getFileContent: mock(() => {
+				const error = new Error("Not Found") as Error & { status: number };
+				error.status = 404;
+				return Promise.reject(error);
+			}),
+			createOrUpdateFile: mock(() =>
+				Promise.reject(new Error("Permission denied")),
+			),
+		} as unknown as GitHubClient;
+
+		const result = await handleCheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			"current-sha",
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("Failed to create commit");
+		expect(result.error).toContain("Permission denied");
+	});
+
+	test("passes symlink options to commit function", async () => {
+		const suggestedContent = "# Package\n\nContent.";
+		const commentBody = createFullCommentBody({
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			headSha: "current-sha",
+			suggestedContent,
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			headSha: "current-sha",
+		};
+
+		const createOrUpdateFileCalls: Array<{
+			path: string;
+			content: string;
+			message: string;
+			branch: string;
+		}> = [];
+
+		const mockClient = {
+			getFileContent: mock(() => {
+				const error = new Error("Not Found") as Error & { status: number };
+				error.status = 404;
+				return Promise.reject(error);
+			}),
+			createOrUpdateFile: mock(
+				(path: string, content: string, message: string, branch: string) => {
+					createOrUpdateFileCalls.push({ path, content, message, branch });
+					return Promise.resolve({
+						commit: {
+							sha: "commit-sha",
+							html_url: "https://github.com/test/repo/commit/sha",
+						},
+					});
+				},
+			),
+			updateComment: mock(() => Promise.resolve({ id: 123, body: "" })),
+		} as unknown as GitHubClient;
+
+		await handleCheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			"current-sha",
+			{
+				branch: "feature-branch",
+				symlink: false, // Non-symlink mode creates both files
+			},
+		);
+
+		// In non-symlink mode with otherNodePath, both files should be created
+		expect(createOrUpdateFileCalls.length).toBeGreaterThanOrEqual(1);
+		expect(createOrUpdateFileCalls[0]?.branch).toBe("feature-branch");
 	});
 });

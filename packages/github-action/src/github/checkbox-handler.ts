@@ -6,12 +6,23 @@
  * ensure stable state before processing.
  */
 
+import type { SymlinkSource } from "../config/schema.js";
+import type { IntentUpdate } from "../opencode/output-schema.js";
 import type { GitHubClient } from "./client.js";
 import {
 	type CommentMarkerData,
 	isCheckboxChecked,
+	markCommentAsResolved,
 	parseCommentMarker,
+	updateCommentMarkerWithCommit,
 } from "./comments.js";
+import {
+	type CommitResult,
+	createIntentAddCommit,
+	createIntentUpdateCommit,
+	getFileSha,
+	type IntentCommitOptions,
+} from "./commits.js";
 
 /**
  * Default debounce delay in milliseconds.
@@ -195,5 +206,226 @@ export function validateCheckboxEvent(
 		commentBody,
 		issueNumber,
 		isPullRequest,
+	};
+}
+
+/**
+ * Options for handling a checked checkbox.
+ */
+export interface HandleCheckedCheckboxOptions {
+	/** Branch to commit to (typically the PR branch) */
+	branch: string;
+	/** Whether to create symlinks between AGENTS.md and CLAUDE.md */
+	symlink?: boolean;
+	/** Which file is the source of truth when symlinking */
+	symlinkSource?: SymlinkSource;
+}
+
+/**
+ * Result of handling a checked checkbox.
+ */
+export interface HandleCheckedCheckboxResult {
+	/** Whether the operation succeeded */
+	success: boolean;
+	/** The commit result if successful */
+	commitResult?: CommitResult;
+	/** Whether the comment was marked as resolved (stale) */
+	markedAsResolved?: boolean;
+	/** Error message if the operation failed */
+	error?: string;
+}
+
+/**
+ * Reconstruct an IntentUpdate from the comment body.
+ *
+ * When handling checkbox approval, we need to reconstruct the IntentUpdate
+ * from the comment. The comment contains the suggested content in a diff
+ * code block, which we extract here.
+ *
+ * @param commentBody - The full comment body
+ * @param markerData - Parsed marker data with node paths
+ * @param action - The action type (create or update)
+ * @returns Reconstructed IntentUpdate
+ */
+export function reconstructIntentUpdateFromComment(
+	commentBody: string,
+	markerData: CommentMarkerData,
+	action: "create" | "update",
+): IntentUpdate {
+	// Extract suggested content from the comment diff block.
+	// The diff format shows additions with + prefix. We need to extract the actual content.
+	// The comment format includes a markdown code block with the diff.
+
+	// Look for content between ```diff and ``` or ```markdown and ```
+	// First try to find a "Suggested Content" section with markdown code block
+	const suggestedMatch = commentBody.match(
+		/### Suggested Content[\s\S]*?```(?:markdown|md)?\n([\s\S]*?)```/,
+	);
+
+	let suggestedContent = "";
+	if (suggestedMatch?.[1]) {
+		suggestedContent = suggestedMatch[1];
+	} else {
+		// Fallback: try to extract from diff block (lines starting with +, removing the +)
+		const diffMatch = commentBody.match(/```diff\n([\s\S]*?)```/);
+		if (diffMatch?.[1]) {
+			// Extract only the added lines (starting with +) and remove the + prefix
+			const lines = diffMatch[1].split("\n");
+			const addedLines = lines
+				.filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+				.map((line) => line.substring(1));
+			suggestedContent = addedLines.join("\n");
+		}
+	}
+
+	// Extract current content if this is an update
+	let currentContent: string | undefined;
+	if (action === "update") {
+		const currentMatch = commentBody.match(
+			/### Current Content[\s\S]*?```(?:markdown|md)?\n([\s\S]*?)```/,
+		);
+		if (currentMatch?.[1]) {
+			currentContent = currentMatch[1];
+		} else {
+			// Fallback: extract removed lines from diff
+			const diffMatch = commentBody.match(/```diff\n([\s\S]*?)```/);
+			if (diffMatch?.[1]) {
+				const lines = diffMatch[1].split("\n");
+				const removedLines = lines
+					.filter((line) => line.startsWith("-") && !line.startsWith("---"))
+					.map((line) => line.substring(1));
+				currentContent = removedLines.join("\n");
+			}
+		}
+	}
+
+	// Extract reason from comment (typically in a "Reason" section or after the diff)
+	const reasonMatch = commentBody.match(/(?:Reason|Why)[:\s]*([^\n]+)/i);
+	const reason = reasonMatch?.[1]?.trim() || "Approved via checkbox";
+
+	const update: IntentUpdate = {
+		nodePath: markerData.nodePath,
+		otherNodePath: markerData.otherNodePath,
+		action,
+		reason,
+		suggestedContent: suggestedContent || "",
+	};
+
+	if (currentContent) {
+		update.currentContent = currentContent;
+	}
+
+	return update;
+}
+
+/**
+ * Handle a checked checkbox in an intent layer comment.
+ *
+ * This function:
+ * 1. Verifies the current PR headSha matches the marker's headSha
+ * 2. If not matching, marks the comment as RESOLVED (stale)
+ * 3. If matching, determines whether to create ADD or UPDATE commit
+ * 4. Creates the commit
+ * 5. Updates the comment marker with the appliedCommit SHA
+ *
+ * @param client - GitHub client for API operations
+ * @param commentId - ID of the comment being processed
+ * @param commentBody - Current body of the comment
+ * @param markerData - Parsed marker data from the comment
+ * @param currentHeadSha - Current PR head SHA
+ * @param options - Commit options (branch, symlink settings)
+ * @returns Result of the operation
+ */
+export async function handleCheckedCheckbox(
+	client: GitHubClient,
+	commentId: number,
+	commentBody: string,
+	markerData: CommentMarkerData,
+	currentHeadSha: string,
+	options: HandleCheckedCheckboxOptions,
+): Promise<HandleCheckedCheckboxResult> {
+	// Step 1: Verify headSha matches
+	if (markerData.headSha !== currentHeadSha) {
+		// PR has been updated since this comment was created
+		// Mark the comment as resolved (stale)
+		const resolvedBody = markCommentAsResolved(commentBody);
+		await client.updateComment(commentId, resolvedBody);
+
+		return {
+			success: false,
+			markedAsResolved: true,
+			error: `PR head has changed (was: ${markerData.headSha}, now: ${currentHeadSha}). Comment marked as resolved.`,
+		};
+	}
+
+	// Step 2: Determine if this is a create or update action
+	// Check if the file already exists on the branch
+	const existingSha = await getFileSha(
+		client,
+		markerData.nodePath,
+		options.branch,
+	);
+	const action = existingSha ? "update" : "create";
+
+	// Step 3: Reconstruct the IntentUpdate from the comment
+	const update = reconstructIntentUpdateFromComment(
+		commentBody,
+		markerData,
+		action,
+	);
+
+	// For updates, we need to ensure we have currentContent
+	if (action === "update" && !update.currentContent) {
+		// Fetch current content from the file
+		try {
+			const content = await client.getFileContent(
+				markerData.nodePath,
+				options.branch,
+			);
+			if (!Array.isArray(content) && "content" in content && content.content) {
+				update.currentContent = Buffer.from(content.content, "base64").toString(
+					"utf-8",
+				);
+			}
+		} catch {
+			// If we can't get the content, proceed anyway - the commit function will handle it
+		}
+	}
+
+	// Step 4: Create the commit
+	const commitOptions: IntentCommitOptions = {
+		branch: options.branch,
+		symlink: options.symlink,
+		symlinkSource: options.symlinkSource,
+	};
+
+	let commitResult: CommitResult;
+	try {
+		if (action === "create") {
+			commitResult = await createIntentAddCommit(client, update, commitOptions);
+		} else {
+			commitResult = await createIntentUpdateCommit(
+				client,
+				update,
+				commitOptions,
+			);
+		}
+	} catch (error) {
+		return {
+			success: false,
+			error: `Failed to create commit: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+
+	// Step 5: Update the comment marker with appliedCommit
+	const updatedBody = updateCommentMarkerWithCommit(
+		commentBody,
+		commitResult.sha,
+	);
+	await client.updateComment(commentId, updatedBody);
+
+	return {
+		success: true,
+		commitResult,
 	};
 }
