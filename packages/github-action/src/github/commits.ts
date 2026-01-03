@@ -748,3 +748,112 @@ export async function createIntentRevertCommit(
 		message: commitMessage,
 	};
 }
+
+/**
+ * Result of applying multiple intent updates to a branch.
+ */
+export interface ApplyUpdatesResult {
+	/** Array of commit results for each successfully applied update */
+	commits: CommitResult[];
+	/** Number of updates successfully applied */
+	appliedCount: number;
+	/** Total number of updates attempted */
+	totalCount: number;
+	/** Any errors that occurred during application */
+	errors: Array<{ update: IntentUpdate; error: string }>;
+}
+
+/**
+ * Options for applying updates to a branch.
+ */
+export interface ApplyUpdatesOptions extends IntentCommitOptions {
+	/**
+	 * Whether to stop on first error (default: false).
+	 * When false, continues applying remaining updates even if one fails.
+	 */
+	stopOnError?: boolean;
+}
+
+/**
+ * Apply all suggested intent layer changes to a branch.
+ *
+ * This function is used by `output: new_pr` mode to apply all proposed
+ * intent layer updates to a branch without requiring approval checkboxes.
+ * Each update is applied in sequence, creating individual commits.
+ *
+ * The function handles:
+ * - Create actions: Creates new intent files using `createIntentAddCommit`
+ * - Update actions: Updates existing intent files using `createIntentUpdateCommit`
+ * - Delete actions: Not yet implemented (rare use case)
+ *
+ * @param client - GitHub client for API operations
+ * @param updates - Array of intent updates to apply
+ * @param options - Options including branch name and symlink settings
+ * @returns Result containing all commit results and any errors
+ */
+export async function applyUpdatesToBranch(
+	client: GitHubClient,
+	updates: IntentUpdate[],
+	options: ApplyUpdatesOptions,
+): Promise<ApplyUpdatesResult> {
+	const commits: CommitResult[] = [];
+	const errors: Array<{ update: IntentUpdate; error: string }> = [];
+	const stopOnError = options.stopOnError ?? false;
+
+	for (const update of updates) {
+		try {
+			let result: CommitResult;
+
+			switch (update.action) {
+				case "create":
+					result = await createIntentAddCommit(client, update, options);
+					break;
+
+				case "update":
+					result = await createIntentUpdateCommit(client, update, options);
+					break;
+
+				case "delete":
+					// Delete actions are rare and typically handled via revert
+					// For now, skip delete actions in batch apply
+					// TODO: Implement delete handling if needed
+					continue;
+
+				default:
+					// TypeScript exhaustive check
+					throw new Error(
+						`Unknown action type: ${(update as IntentUpdate).action}`,
+					);
+			}
+
+			commits.push(result);
+		} catch (error) {
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			errors.push({ update, error: errorMessage });
+
+			if (stopOnError) {
+				break;
+			}
+		}
+	}
+
+	return {
+		commits,
+		appliedCount: commits.length,
+		totalCount: updates.length,
+		errors,
+	};
+}
+
+/**
+ * Generate a summary commit message for batch intent layer updates.
+ *
+ * This is used when `output: pr_commit` mode applies all changes in a single
+ * logical operation (though technically still individual commits via API).
+ *
+ * @returns Standard batch commit message
+ */
+export function generateBatchCommitMessage(): string {
+	return "[INTENT] apply intent layer updates";
+}

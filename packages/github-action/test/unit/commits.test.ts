@@ -1,11 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { GitHubClient } from "../../src/github/client";
 import {
+	applyUpdatesToBranch,
 	createIntentAddCommit,
 	createIntentLayerBranch,
 	createIntentRevertCommit,
 	createIntentUpdateCommit,
 	generateAddCommitMessage,
+	generateBatchCommitMessage,
 	generateIntentLayerBranchName,
 	generateRevertCommitMessage,
 	generateUpdateCommitMessage,
@@ -1461,5 +1463,387 @@ describe("createIntentLayerBranch", () => {
 		await createIntentLayerBranch(client, 100, "specific-sha-456def");
 
 		expect(capturedSha).toBe("specific-sha-456def");
+	});
+});
+
+describe("applyUpdatesToBranch", () => {
+	test("applies multiple create updates successfully", async () => {
+		let commitCount = 0;
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const mockCreateOrUpdateFile = mock(async (path: string) => ({
+			commit: {
+				sha: `sha${++commitCount}`,
+				html_url: `https://github.com/commit/sha${commitCount}`,
+			},
+			content: { sha: "blobsha" },
+		}));
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "packages/api/AGENTS.md",
+				action: "create",
+				reason: "New API package",
+				suggestedContent: "# API\n",
+			},
+			{
+				nodePath: "packages/core/AGENTS.md",
+				action: "create",
+				reason: "New core package",
+				suggestedContent: "# Core\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+		});
+
+		expect(result.appliedCount).toBe(2);
+		expect(result.totalCount).toBe(2);
+		expect(result.errors).toHaveLength(0);
+		expect(result.commits).toHaveLength(2);
+		expect(result.commits[0]?.filePath).toBe("packages/api/AGENTS.md");
+		expect(result.commits[1]?.filePath).toBe("packages/core/AGENTS.md");
+	});
+
+	test("applies multiple update updates successfully", async () => {
+		let commitCount = 0;
+		const mockGetFileContent = mock(async () => ({
+			sha: `existingsha${++commitCount}`,
+			type: "file",
+			content: "SGVsbG8=",
+		}));
+
+		const mockCreateOrUpdateFile = mock(async (path: string) => ({
+			commit: {
+				sha: `newsha${commitCount}`,
+				html_url: `https://github.com/commit/newsha${commitCount}`,
+			},
+			content: { sha: "blobsha" },
+		}));
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "AGENTS.md",
+				action: "update",
+				reason: "Update root docs",
+				currentContent: "# Old\n",
+				suggestedContent: "# New\n",
+			},
+			{
+				nodePath: "packages/AGENTS.md",
+				action: "update",
+				reason: "Update packages docs",
+				currentContent: "# Old packages\n",
+				suggestedContent: "# New packages\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+		});
+
+		expect(result.appliedCount).toBe(2);
+		expect(result.totalCount).toBe(2);
+		expect(result.errors).toHaveLength(0);
+	});
+
+	test("handles mixed create and update actions", async () => {
+		let fileCallCount = 0;
+		const mockGetFileContent = mock(async (path: string) => {
+			fileCallCount++;
+			if (path === "AGENTS.md") {
+				// Root file exists
+				return {
+					sha: "existingsha",
+					type: "file",
+					content: "SGVsbG8=",
+				};
+			}
+			// New file doesn't exist
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		let commitCount = 0;
+		const mockCreateOrUpdateFile = mock(async () => ({
+			commit: {
+				sha: `sha${++commitCount}`,
+				html_url: `https://github.com/commit/sha${commitCount}`,
+			},
+			content: { sha: "blobsha" },
+		}));
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "AGENTS.md",
+				action: "update",
+				reason: "Update root",
+				currentContent: "# Old\n",
+				suggestedContent: "# New\n",
+			},
+			{
+				nodePath: "packages/new/AGENTS.md",
+				action: "create",
+				reason: "New package",
+				suggestedContent: "# New package\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+		});
+
+		expect(result.appliedCount).toBe(2);
+		expect(result.totalCount).toBe(2);
+		expect(result.errors).toHaveLength(0);
+	});
+
+	test("continues on error when stopOnError is false", async () => {
+		let callCount = 0;
+		const mockGetFileContent = mock(async (path: string) => {
+			callCount++;
+			if (path === "packages/failing/AGENTS.md") {
+				// First file doesn't exist for update (will fail)
+				const error = new Error("Not Found") as Error & { status: number };
+				error.status = 404;
+				throw error;
+			}
+			// Second file doesn't exist for create (will succeed)
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const mockCreateOrUpdateFile = mock(async () => ({
+			commit: {
+				sha: "successsha",
+				html_url: "https://github.com/commit/successsha",
+			},
+			content: { sha: "blobsha" },
+		}));
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "packages/failing/AGENTS.md",
+				action: "update", // This will fail because file doesn't exist
+				reason: "This should fail",
+				currentContent: "# Old\n",
+				suggestedContent: "# New\n",
+			},
+			{
+				nodePath: "packages/success/AGENTS.md",
+				action: "create", // This should succeed
+				reason: "This should succeed",
+				suggestedContent: "# Success\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+			stopOnError: false,
+		});
+
+		expect(result.appliedCount).toBe(1);
+		expect(result.totalCount).toBe(2);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]?.update.nodePath).toBe(
+			"packages/failing/AGENTS.md",
+		);
+		expect(result.errors[0]?.error).toContain("does not exist");
+		expect(result.commits[0]?.filePath).toBe("packages/success/AGENTS.md");
+	});
+
+	test("stops on first error when stopOnError is true", async () => {
+		const mockGetFileContent = mock(async () => {
+			// File doesn't exist - update will fail
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const mockCreateOrUpdateFile = mock(async () => ({
+			commit: {
+				sha: "sha",
+				html_url: "https://github.com/commit/sha",
+			},
+			content: { sha: "blobsha" },
+		}));
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "packages/failing/AGENTS.md",
+				action: "update", // This will fail
+				reason: "This should fail",
+				currentContent: "# Old\n",
+				suggestedContent: "# New\n",
+			},
+			{
+				nodePath: "packages/success/AGENTS.md",
+				action: "create", // This would succeed but won't be reached
+				reason: "This should succeed",
+				suggestedContent: "# Success\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+			stopOnError: true,
+		});
+
+		expect(result.appliedCount).toBe(0);
+		expect(result.totalCount).toBe(2);
+		expect(result.errors).toHaveLength(1);
+		// Second update was not attempted due to stopOnError
+		expect(mockCreateOrUpdateFile).not.toHaveBeenCalled();
+	});
+
+	test("skips delete actions", async () => {
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const mockCreateOrUpdateFile = mock(async () => ({
+			commit: {
+				sha: "sha",
+				html_url: "https://github.com/commit/sha",
+			},
+			content: { sha: "blobsha" },
+		}));
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "packages/delete/AGENTS.md",
+				action: "delete", // This will be skipped
+				reason: "Remove old package",
+				currentContent: "# Old\n",
+			},
+			{
+				nodePath: "packages/new/AGENTS.md",
+				action: "create",
+				reason: "New package",
+				suggestedContent: "# New\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+		});
+
+		// Delete was skipped, create succeeded
+		expect(result.appliedCount).toBe(1);
+		expect(result.totalCount).toBe(2);
+		expect(result.errors).toHaveLength(0);
+		expect(result.commits[0]?.filePath).toBe("packages/new/AGENTS.md");
+	});
+
+	test("returns empty result for empty updates array", async () => {
+		const client = {} as GitHubClient;
+
+		const result = await applyUpdatesToBranch(client, [], {
+			branch: "intent-layer/42",
+		});
+
+		expect(result.appliedCount).toBe(0);
+		expect(result.totalCount).toBe(0);
+		expect(result.errors).toHaveLength(0);
+		expect(result.commits).toHaveLength(0);
+	});
+
+	test("passes symlink options to commit functions", async () => {
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const filesCreated: Array<{
+			path: string;
+			content: string;
+			isSymlink: boolean;
+		}> = [];
+		const mockCreateFilesWithSymlinks = mock(
+			async (
+				files: Array<{ path: string; content: string; isSymlink: boolean }>,
+			) => {
+				for (const f of files) {
+					filesCreated.push(f);
+				}
+				return {
+					sha: "symlinksha",
+					url: "https://github.com/commit/symlinksha",
+				};
+			},
+		);
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createFilesWithSymlinks: mockCreateFilesWithSymlinks,
+			createOrUpdateFile: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const updates: IntentUpdate[] = [
+			{
+				nodePath: "packages/api/AGENTS.md",
+				otherNodePath: "packages/api/CLAUDE.md",
+				action: "create",
+				reason: "New API package",
+				suggestedContent: "# API\n",
+			},
+		];
+
+		const result = await applyUpdatesToBranch(client, updates, {
+			branch: "intent-layer/42",
+			symlink: true,
+			symlinkSource: "agents",
+		});
+
+		expect(result.appliedCount).toBe(1);
+		expect(mockCreateFilesWithSymlinks).toHaveBeenCalled();
+		expect(filesCreated).toHaveLength(2);
+	});
+});
+
+describe("generateBatchCommitMessage", () => {
+	test("returns standard batch commit message", () => {
+		const message = generateBatchCommitMessage();
+		expect(message).toBe("[INTENT] apply intent layer updates");
 	});
 });

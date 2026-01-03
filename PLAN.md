@@ -251,7 +251,7 @@ prompts:
 
 ### Phase 11: PR Output Mode (`output: new_pr`)
 - [x] 11.1 Create separate branch for intent updates (`intent-layer/<pr-number>`)
-- [ ] 11.2 Apply all suggested changes to branch (no approval checkboxes needed)
+- [x] 11.2 Apply all suggested changes to branch (no approval checkboxes needed)
 - [ ] 11.3 Open PR targeting original PR's branch
 - [ ] 11.4 Post a single comment on original PR linking to intent layer PR
 
