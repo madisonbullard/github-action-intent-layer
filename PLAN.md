@@ -22,7 +22,11 @@ The action runs on PRs (open, sync, edit), analyzes code changes, and suggests u
 ## Project Structure
 
 ```
-packages/github-action/
+/
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                # Run tests on PRs
+│       └── release.yml           # Release on main branch
 ├── action.yml                    # GitHub Action definition
 ├── package.json                  # Bun package
 ├── tsconfig.json
@@ -60,14 +64,6 @@ packages/github-action/
 │   ├── integration/              # Integration tests against test repo
 │   └── fixtures/                 # Test fixtures (sample repos, PRs)
 └── README.md
-```
-
-Root-level additions:
-```
-.github/
-└── workflows/
-    ├── ci.yml                    # Run tests on PRs
-    └── release.yml               # Release on main branch
 ```
 
 ---
