@@ -208,7 +208,7 @@ prompts:
 - [x] 6.3 Review parent nodes for updates (default to no parent changes unless clearly needed)
 - [x] 6.4 Identify potential new semantic boundaries (respects `new_nodes: false`)
 - [x] 6.5 Generate "update reasons" for each affected node
-- [ ] 6.6 Write unit tests for change analysis
+- [x] 6.6 Write unit tests for change analysis
 
 ### Phase 7: OpenCode SDK Integration
 - [ ] 7.1 Define and validate structured JSON output schema
