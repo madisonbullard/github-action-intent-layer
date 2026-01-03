@@ -225,12 +225,12 @@ prompts:
 
 ### Phase 8: PR Comment Management
 - [x] 8.1 Generate diff format (before/after) for each node update
-- [ ] 8.2 Create comment template with hidden marker `<!-- INTENT_LAYER node=path/to/AGENTS.md otherNode=path/to/CLAUDE.md appliedCommit=<sha> headSha=<sha> -->`
-- [ ] 8.3 Create comment template with single checkbox for approval (`- [ ] Apply this change`)
+- [x] 8.2 Create comment template with hidden marker `<!-- INTENT_LAYER node=path/to/AGENTS.md otherNode=path/to/CLAUDE.md appliedCommit=<sha> headSha=<sha> -->`
+- [x] 8.3 Create comment template with single checkbox for approval (`- [ ] Apply this change`)
 - [ ] 8.4 Post one comment per affected node
-- [ ] 8.5 Find existing comments by hidden marker on subsequent runs
-- [ ] 8.6 Mark old comments as `**RESOLVED**`, post new comments
-- [ ] 8.7 Write unit tests for comment formatting
+- [x] 8.5 Find existing comments by hidden marker on subsequent runs
+- [x] 8.6 Mark old comments as `**RESOLVED**`, post new comments
+- [x] 8.7 Write unit tests for comment formatting
 
 ### Phase 9: Commit Operations
 - [ ] 9.1 Implement `[INTENT:ADD]` commit creation
