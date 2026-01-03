@@ -888,3 +888,313 @@ describe("GitHubClient error handling", () => {
 		);
 	});
 });
+
+// ============================================================================
+// Retry Logic Tests
+// ============================================================================
+
+import { type RetryConfig, withRetry } from "../../src/github/client";
+
+describe("withRetry", () => {
+	describe("successful operations", () => {
+		test("returns result on first successful attempt", async () => {
+			const fn = mock(() => Promise.resolve("success"));
+			const result = await withRetry(fn, "testOp");
+
+			expect(result).toBe("success");
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
+
+		test("returns result after retry on transient error", async () => {
+			let attempts = 0;
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Server Error") as Error & { status: number };
+					error.status = 503;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success after retry");
+			});
+
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 10,
+			});
+
+			expect(result).toBe("success after retry");
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("rate limit handling", () => {
+		test("retries on 429 status code", async () => {
+			let attempts = 0;
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Rate Limited") as Error & { status: number };
+					error.status = 429;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 10,
+			});
+
+			expect(result).toBe("success");
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+
+		test("retries on 403 status code (secondary rate limit)", async () => {
+			let attempts = 0;
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Forbidden") as Error & { status: number };
+					error.status = 403;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 10,
+			});
+
+			expect(result).toBe("success");
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+
+		test("respects retry-after header from error response", async () => {
+			let attempts = 0;
+			const startTime = Date.now();
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Rate Limited") as Error & {
+						status: number;
+						response: { headers: Record<string, string> };
+					};
+					error.status = 429;
+					error.response = { headers: { "retry-after": "1" } }; // 1 second
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			// Use small jitter to make the test more deterministic
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 5000,
+				jitterFactor: 0,
+			});
+
+			const elapsed = Date.now() - startTime;
+			expect(result).toBe("success");
+			// Should have waited approximately 1 second (1000ms)
+			expect(elapsed).toBeGreaterThanOrEqual(900);
+		});
+	});
+
+	describe("transient error handling", () => {
+		test("retries on 500 status code", async () => {
+			let attempts = 0;
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Internal Server Error") as Error & {
+						status: number;
+					};
+					error.status = 500;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 10,
+			});
+
+			expect(result).toBe("success");
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+
+		test("retries on 502 status code", async () => {
+			let attempts = 0;
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Bad Gateway") as Error & { status: number };
+					error.status = 502;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 10,
+			});
+
+			expect(result).toBe("success");
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+
+		test("retries on 504 status code", async () => {
+			let attempts = 0;
+			const fn = mock(() => {
+				attempts++;
+				if (attempts < 2) {
+					const error = new Error("Gateway Timeout") as Error & {
+						status: number;
+					};
+					error.status = 504;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			const result = await withRetry(fn, "testOp", {
+				baseDelayMs: 1,
+				maxDelayMs: 10,
+			});
+
+			expect(result).toBe("success");
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("non-retryable errors", () => {
+		test("does not retry on 404 status code", async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			const fn = mock(() => Promise.reject(error));
+
+			await expect(
+				withRetry(fn, "testOp", { baseDelayMs: 1, maxDelayMs: 10 }),
+			).rejects.toThrow("Not Found");
+
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
+
+		test("does not retry on 401 status code", async () => {
+			const error = new Error("Unauthorized") as Error & { status: number };
+			error.status = 401;
+			const fn = mock(() => Promise.reject(error));
+
+			await expect(
+				withRetry(fn, "testOp", { baseDelayMs: 1, maxDelayMs: 10 }),
+			).rejects.toThrow("Unauthorized");
+
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
+
+		test("does not retry on 422 status code", async () => {
+			const error = new Error("Unprocessable Entity") as Error & {
+				status: number;
+			};
+			error.status = 422;
+			const fn = mock(() => Promise.reject(error));
+
+			await expect(
+				withRetry(fn, "testOp", { baseDelayMs: 1, maxDelayMs: 10 }),
+			).rejects.toThrow("Unprocessable Entity");
+
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
+
+		test("does not retry errors without status code", async () => {
+			const error = new Error("Network Error");
+			const fn = mock(() => Promise.reject(error));
+
+			await expect(
+				withRetry(fn, "testOp", { baseDelayMs: 1, maxDelayMs: 10 }),
+			).rejects.toThrow("Network Error");
+
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe("retry limits", () => {
+		test("gives up after max retries", async () => {
+			const error = new Error("Server Error") as Error & { status: number };
+			error.status = 503;
+			const fn = mock(() => Promise.reject(error));
+
+			await expect(
+				withRetry(fn, "testOp", {
+					maxRetries: 2,
+					baseDelayMs: 1,
+					maxDelayMs: 10,
+				}),
+			).rejects.toThrow("Server Error");
+
+			// Initial attempt + 2 retries = 3 total calls
+			expect(fn).toHaveBeenCalledTimes(3);
+		});
+
+		test("respects custom maxRetries config", async () => {
+			const error = new Error("Server Error") as Error & { status: number };
+			error.status = 503;
+			const fn = mock(() => Promise.reject(error));
+
+			await expect(
+				withRetry(fn, "testOp", {
+					maxRetries: 1,
+					baseDelayMs: 1,
+					maxDelayMs: 10,
+				}),
+			).rejects.toThrow("Server Error");
+
+			// Initial attempt + 1 retry = 2 total calls
+			expect(fn).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("exponential backoff", () => {
+		test("delays increase exponentially", async () => {
+			const delays: number[] = [];
+			let lastTime = Date.now();
+			let attempts = 0;
+
+			const fn = mock(() => {
+				const now = Date.now();
+				if (attempts > 0) {
+					delays.push(now - lastTime);
+				}
+				lastTime = now;
+				attempts++;
+
+				if (attempts < 4) {
+					const error = new Error("Server Error") as Error & { status: number };
+					error.status = 503;
+					return Promise.reject(error);
+				}
+				return Promise.resolve("success");
+			});
+
+			await withRetry(fn, "testOp", {
+				maxRetries: 3,
+				baseDelayMs: 50,
+				maxDelayMs: 500,
+				jitterFactor: 0, // No jitter for predictable delays
+			});
+
+			expect(delays.length).toBe(3);
+			// Delays should be approximately 50, 100, 200 (exponential)
+			// Allow some tolerance for timing
+			expect(delays[0]).toBeGreaterThanOrEqual(40);
+			expect(delays[0]).toBeLessThan(70);
+			expect(delays[1]).toBeGreaterThanOrEqual(90);
+			expect(delays[1]).toBeLessThan(130);
+			expect(delays[2]).toBeGreaterThanOrEqual(180);
+			expect(delays[2]).toBeLessThan(250);
+		});
+	});
+});
