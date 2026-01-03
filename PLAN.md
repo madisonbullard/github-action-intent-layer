@@ -240,7 +240,7 @@ prompts:
 - [x] 9.5 Write unit tests for commit operations
 
 ### Phase 10: Checkbox Toggle Handler (`mode: checkbox-handler`)
-- [ ] 10.1 Implement 1.5s debounce (wait, re-fetch comment, verify state unchanged)
+- [x] 10.1 Implement 1.5s debounce (wait, re-fetch comment, verify state unchanged)
 - [ ] 10.2 Detect checkbox state in comment body (single checkbox per comment)
 - [ ] 10.2a If unchecked and no `appliedCommit`, do nothing
 - [ ] 10.3 Parse node path + `appliedCommit` + `headSha` from hidden marker
