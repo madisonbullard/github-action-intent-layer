@@ -224,7 +224,7 @@ prompts:
 - [x] 7.11 Handle model access errors (fail action with clear message)
 
 ### Phase 8: PR Comment Management
-- [ ] 8.1 Generate diff format (before/after) for each node update
+- [x] 8.1 Generate diff format (before/after) for each node update
 - [ ] 8.2 Create comment template with hidden marker `<!-- INTENT_LAYER node=path/to/AGENTS.md otherNode=path/to/CLAUDE.md appliedCommit=<sha> headSha=<sha> -->`
 - [ ] 8.3 Create comment template with single checkbox for approval (`- [ ] Apply this change`)
 - [ ] 8.4 Post one comment per affected node
