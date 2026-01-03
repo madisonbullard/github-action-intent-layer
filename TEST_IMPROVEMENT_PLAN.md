@@ -42,7 +42,7 @@ The existing `ci.yml` has:
 ## Phase 1: Clean Up Redundant Tests
 
 ### Tasks
-- [ ] Delete `test/integration/no-intent-layer.test.ts`
+- [x] Delete `test/integration/no-intent-layer.test.ts`
 - [ ] Delete `test/integration/propose-new-node.test.ts`
 - [ ] Delete `test/integration/update-existing-node.test.ts`
 - [ ] Run full test suite to verify nothing breaks
