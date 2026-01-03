@@ -203,7 +203,7 @@ prompts:
 - [x] 5.7 Write unit tests for token calculations
 
 ### Phase 6: Change Analysis
-- [ ] 6.1 Map changed files to their covering intent nodes
+- [x] 6.1 Map changed files to their covering intent nodes
 - [ ] 6.2 Determine which nodes need updates based on diff (nearest covering node only)
 - [ ] 6.3 Review parent nodes for updates (default to no parent changes unless clearly needed)
 - [ ] 6.4 Identify potential new semantic boundaries (respects `new_nodes: false`)
