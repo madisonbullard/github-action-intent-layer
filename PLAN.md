@@ -206,7 +206,7 @@ prompts:
 - [x] 6.1 Map changed files to their covering intent nodes
 - [x] 6.2 Determine which nodes need updates based on diff (nearest covering node only)
 - [x] 6.3 Review parent nodes for updates (default to no parent changes unless clearly needed)
-- [ ] 6.4 Identify potential new semantic boundaries (respects `new_nodes: false`)
+- [x] 6.4 Identify potential new semantic boundaries (respects `new_nodes: false`)
 - [ ] 6.5 Generate "update reasons" for each affected node
 - [ ] 6.6 Write unit tests for change analysis
 
