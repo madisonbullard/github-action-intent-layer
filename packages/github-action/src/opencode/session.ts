@@ -9,6 +9,7 @@
  * and the OpenCode GitHub App reference implementation.
  */
 
+import * as core from "@actions/core";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { type LLMOutput, parseRawLLMOutput } from "./output-schema";
 
@@ -758,4 +759,135 @@ function extractSessionId(response: unknown): string {
 export function buildSessionTitle(prNumber: number, repoName?: string): string {
 	const base = `Intent Layer Analysis for PR #${prNumber}`;
 	return repoName ? `${base} (${repoName})` : base;
+}
+
+/**
+ * Handle a model access error by failing the GitHub Action with a clear error message.
+ *
+ * This function should be called when a ModelAccessError is caught during intent layer
+ * analysis. It will:
+ * 1. Log the error details for debugging
+ * 2. Fail the GitHub Action with a user-friendly error message
+ * 3. Re-throw the error for programmatic handling
+ *
+ * Per PLAN.md task 12.5:
+ * "Handle model access errors → fail action with clear error message (no PR comment)"
+ *
+ * @param error - The ModelAccessError that occurred
+ * @throws The original ModelAccessError after logging and failing the action
+ */
+export function handleModelAccessError(error: ModelAccessError): never {
+	// Build detailed error message for logging
+	const detailedMessage = buildDetailedModelAccessErrorMessage(error);
+
+	// Log the detailed error for debugging
+	core.error(detailedMessage);
+
+	// Fail the GitHub Action with clear message
+	core.setFailed(detailedMessage);
+
+	// Re-throw the error for programmatic handling
+	throw error;
+}
+
+/**
+ * Build a detailed error message for model access errors.
+ *
+ * @param error - The ModelAccessError
+ * @returns Detailed error message with context and guidance
+ */
+function buildDetailedModelAccessErrorMessage(error: ModelAccessError): string {
+	const lines: string[] = [];
+
+	lines.push("Intent Layer Action Failed: Model Access Error");
+	lines.push("");
+	lines.push(error.message);
+	lines.push("");
+
+	// Add specific guidance based on error type
+	if (error.isAuthenticationError()) {
+		lines.push("Troubleshooting steps:");
+		lines.push(
+			"  1. Verify your API key secret is correctly configured in repository settings",
+		);
+		lines.push(
+			"  2. Ensure the secret name matches what's expected (ANTHROPIC_API_KEY or OPENROUTER_API_KEY)",
+		);
+		lines.push("  3. Check that the API key has not expired or been revoked");
+		lines.push(
+			"  4. Confirm the API key has access to the model specified in your workflow",
+		);
+	} else if (error.isRateLimitError()) {
+		lines.push("Troubleshooting steps:");
+		lines.push("  1. Wait a few minutes and re-run the action");
+		lines.push("  2. Check your API provider's rate limit status");
+		lines.push("  3. Consider upgrading your API plan for higher limits");
+	} else if (error.isModelUnavailableError()) {
+		lines.push("Troubleshooting steps:");
+		lines.push(
+			"  1. Verify the model name in your workflow configuration is correct",
+		);
+		lines.push(
+			"  2. Check if the model is available in your region or account tier",
+		);
+		lines.push("  3. Try using a different model version or provider");
+	} else {
+		lines.push("Troubleshooting steps:");
+		lines.push("  1. Check your API configuration and credentials");
+		lines.push("  2. Review the error message above for specific details");
+		lines.push("  3. Consult your API provider's documentation");
+	}
+
+	lines.push("");
+
+	// Add error details for debugging
+	if (error.statusCode || error.errorCode) {
+		lines.push("Error details:");
+		if (error.statusCode) {
+			lines.push(`  Status code: ${error.statusCode}`);
+		}
+		if (error.errorCode) {
+			lines.push(`  Error code: ${error.errorCode}`);
+		}
+	}
+
+	return lines.join("\n");
+}
+
+/**
+ * Check if an error is a ModelAccessError and handle it appropriately.
+ *
+ * This is a convenience function that combines error detection and handling.
+ * If the error is a ModelAccessError, it will fail the action and throw.
+ * If not, it returns false so the caller can handle other error types.
+ *
+ * @param error - Any error that occurred
+ * @returns false if the error is not a ModelAccessError (never returns if it is)
+ */
+export function checkAndHandleModelAccessError(error: unknown): boolean {
+	if (error instanceof ModelAccessError) {
+		handleModelAccessError(error);
+		// handleModelAccessError always throws, so this is unreachable
+	}
+
+	// Check if this is an error that should be converted to ModelAccessError
+	const detection = detectModelAccessError(error);
+	if (detection.isModelAccessError) {
+		const modelError = new ModelAccessError(
+			formatModelAccessErrorMessage(
+				detection.statusCode,
+				detection.errorCode,
+				detection.message,
+			),
+			{
+				cause: error,
+				statusCode: detection.statusCode,
+				errorCode: detection.errorCode,
+			},
+		);
+		handleModelAccessError(modelError);
+		// handleModelAccessError always throws, so this is unreachable
+	}
+
+	return false;
 }

@@ -2,16 +2,29 @@
  * Unit tests for OpenCode session management
  */
 
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
 	buildSessionTitle,
+	checkAndHandleModelAccessError,
 	detectModelAccessError,
 	formatModelAccessErrorMessage,
+	handleModelAccessError,
 	IntentAnalysisSession,
 	ModelAccessError,
 	parseModelString,
 	SessionError,
 } from "../../src/opencode/session";
+
+// Mock @actions/core
+// biome-ignore lint/suspicious/noExplicitAny: Mock function needs to accept any arguments
+const mockSetFailed = mock((_msg: any) => {});
+// biome-ignore lint/suspicious/noExplicitAny: Mock function needs to accept any arguments
+const mockError = mock((_msg: any) => {});
+
+mock.module("@actions/core", () => ({
+	setFailed: mockSetFailed,
+	error: mockError,
+}));
 
 describe("OpenCode Session", () => {
 	describe("parseModelString", () => {
@@ -845,6 +858,157 @@ describe("OpenCode Session", () => {
 			const msg = formatModelAccessErrorMessage(undefined, undefined);
 			expect(msg).toContain("Model access failed");
 			expect(msg).toContain("Unknown error");
+		});
+	});
+
+	describe("handleModelAccessError", () => {
+		beforeEach(() => {
+			mockSetFailed.mockClear();
+			mockError.mockClear();
+		});
+
+		test("calls core.error with detailed message", () => {
+			const error = new ModelAccessError("Invalid API key", {
+				statusCode: 401,
+				errorCode: "authentication_error",
+			});
+
+			expect(() => handleModelAccessError(error)).toThrow(ModelAccessError);
+			expect(mockError).toHaveBeenCalled();
+			const errorMessage = mockError.mock.calls[0]?.[0] as string;
+			expect(errorMessage).toContain("Intent Layer Action Failed");
+			expect(errorMessage).toContain("Invalid API key");
+		});
+
+		test("calls core.setFailed with detailed message", () => {
+			const error = new ModelAccessError("Rate limited", { statusCode: 429 });
+
+			expect(() => handleModelAccessError(error)).toThrow(ModelAccessError);
+			expect(mockSetFailed).toHaveBeenCalled();
+			const failedMessage = mockSetFailed.mock.calls[0]?.[0] as string;
+			expect(failedMessage).toContain("Intent Layer Action Failed");
+			expect(failedMessage).toContain("Rate limited");
+		});
+
+		test("re-throws the original error", () => {
+			const error = new ModelAccessError("Test error");
+
+			let caughtError: unknown;
+			try {
+				handleModelAccessError(error);
+			} catch (e) {
+				caughtError = e;
+			}
+
+			expect(caughtError).toBe(error);
+		});
+
+		test("includes authentication troubleshooting for 401 errors", () => {
+			const error = new ModelAccessError("Invalid API key", {
+				statusCode: 401,
+			});
+
+			expect(() => handleModelAccessError(error)).toThrow();
+			const errorMessage = mockError.mock.calls[0]?.[0] as string;
+			expect(errorMessage).toContain("Troubleshooting steps");
+			expect(errorMessage).toContain("ANTHROPIC_API_KEY");
+			expect(errorMessage).toContain("OPENROUTER_API_KEY");
+		});
+
+		test("includes rate limit troubleshooting for 429 errors", () => {
+			const error = new ModelAccessError("Rate limited", { statusCode: 429 });
+
+			expect(() => handleModelAccessError(error)).toThrow();
+			const errorMessage = mockError.mock.calls[0]?.[0] as string;
+			expect(errorMessage).toContain("Troubleshooting steps");
+			expect(errorMessage).toContain("Wait a few minutes");
+		});
+
+		test("includes model troubleshooting for 404 errors", () => {
+			const error = new ModelAccessError("Model not found", {
+				statusCode: 404,
+			});
+
+			expect(() => handleModelAccessError(error)).toThrow();
+			const errorMessage = mockError.mock.calls[0]?.[0] as string;
+			expect(errorMessage).toContain("Troubleshooting steps");
+			expect(errorMessage).toContain("model name");
+		});
+
+		test("includes error details in message", () => {
+			const error = new ModelAccessError("Test error", {
+				statusCode: 401,
+				errorCode: "invalid_api_key",
+			});
+
+			expect(() => handleModelAccessError(error)).toThrow();
+			const errorMessage = mockError.mock.calls[0]?.[0] as string;
+			expect(errorMessage).toContain("Status code: 401");
+			expect(errorMessage).toContain("Error code: invalid_api_key");
+		});
+	});
+
+	describe("checkAndHandleModelAccessError", () => {
+		beforeEach(() => {
+			mockSetFailed.mockClear();
+			mockError.mockClear();
+		});
+
+		test("returns false for non-model-access errors", () => {
+			const error = new Error("Network timeout");
+			const result = checkAndHandleModelAccessError(error);
+			expect(result).toBe(false);
+			expect(mockSetFailed).not.toHaveBeenCalled();
+		});
+
+		test("throws and fails action for ModelAccessError", () => {
+			const error = new ModelAccessError("Invalid key", { statusCode: 401 });
+
+			expect(() => checkAndHandleModelAccessError(error)).toThrow(
+				ModelAccessError,
+			);
+			expect(mockSetFailed).toHaveBeenCalled();
+		});
+
+		test("converts and handles errors with model access status codes", () => {
+			const error = new Error("Unauthorized") as Error & { status: number };
+			error.status = 401;
+
+			expect(() => checkAndHandleModelAccessError(error)).toThrow(
+				ModelAccessError,
+			);
+			expect(mockSetFailed).toHaveBeenCalled();
+		});
+
+		test("converts and handles errors with model access error codes", () => {
+			const error = new Error("Rate limited") as Error & { code: string };
+			error.code = "rate_limit_error";
+
+			expect(() => checkAndHandleModelAccessError(error)).toThrow(
+				ModelAccessError,
+			);
+			expect(mockSetFailed).toHaveBeenCalled();
+		});
+
+		test("returns false for server errors (5xx)", () => {
+			const error = new Error("Server error") as Error & { status: number };
+			error.status = 500;
+
+			const result = checkAndHandleModelAccessError(error);
+			expect(result).toBe(false);
+			expect(mockSetFailed).not.toHaveBeenCalled();
+		});
+
+		test("returns false for null/undefined", () => {
+			expect(checkAndHandleModelAccessError(null)).toBe(false);
+			expect(checkAndHandleModelAccessError(undefined)).toBe(false);
+			expect(mockSetFailed).not.toHaveBeenCalled();
+		});
+
+		test("returns false for plain strings", () => {
+			const result = checkAndHandleModelAccessError("some error string");
+			expect(result).toBe(false);
+			expect(mockSetFailed).not.toHaveBeenCalled();
 		});
 	});
 });
