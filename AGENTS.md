@@ -8,3 +8,4 @@
 - Run tests: `bun test` in `packages/github-action/` (uses Bun's built-in test runner with Jest-like API)
 - Root tsconfig.json uses JSONC (JSON with Comments) for Bun's recommended settings
 - Package tsconfigs should extend `../../tsconfig.json` to inherit settings
+- Use AGENTS.md, not CLAUDE.md
