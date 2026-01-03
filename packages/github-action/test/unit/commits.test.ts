@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { GitHubClient } from "../../src/github/client";
 import {
 	createIntentAddCommit,
+	createIntentUpdateCommit,
 	generateAddCommitMessage,
 	generateRevertCommitMessage,
 	generateUpdateCommitMessage,
@@ -470,6 +471,223 @@ describe("createIntentAddCommit", () => {
 		// Only AGENTS.md should be created
 		expect(createdFiles).toContain("packages/api/AGENTS.md");
 		expect(createdFiles).not.toContain("packages/api/CLAUDE.md");
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createIntentUpdateCommit", () => {
+	test("updates existing file and returns commit result", async () => {
+		const mockGetFileContent = mock(async () => ({
+			sha: "existingsha123",
+			type: "file",
+			content: "SGVsbG8=",
+		}));
+
+		const mockCreateOrUpdateFile = mock(async () => ({
+			commit: {
+				sha: "newsha456",
+				html_url: "https://github.com/owner/repo/commit/newsha456",
+			},
+			content: {
+				sha: "blobsha",
+			},
+		}));
+
+		const client = createMockClient({
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		});
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			action: "update",
+			reason: "Updated API documentation",
+			currentContent: "# API\n\nOld content.\n",
+			suggestedContent: "# API\n\nNew content.\n",
+		};
+
+		const result = await createIntentUpdateCommit(client, update, {
+			branch: "feature/api-update",
+		});
+
+		expect(result.sha).toBe("newsha456");
+		expect(result.filePath).toBe("packages/api/AGENTS.md");
+		expect(result.message).toContain("[INTENT:UPDATE]");
+		expect(result.message).toContain("packages/api/AGENTS.md");
+		expect(result.message).toContain("Updated API documentation");
+
+		// Verify createOrUpdateFile was called with the existing SHA
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+			"packages/api/AGENTS.md",
+			"# API\n\nNew content.\n",
+			expect.stringContaining("[INTENT:UPDATE]"),
+			"feature/api-update",
+			"existingsha123",
+		);
+	});
+
+	test("throws if action is not update", async () => {
+		const client = createMockClient();
+
+		const update: IntentUpdate = {
+			nodePath: "AGENTS.md",
+			action: "create",
+			reason: "Create",
+			suggestedContent: "new",
+		};
+
+		await expect(
+			createIntentUpdateCommit(client, update, { branch: "main" }),
+		).rejects.toThrow('requires action="update"');
+	});
+
+	test("throws if suggestedContent is missing", async () => {
+		const client = createMockClient();
+
+		const update = {
+			nodePath: "AGENTS.md",
+			action: "update",
+			reason: "Update",
+			currentContent: "old",
+		} as IntentUpdate;
+
+		await expect(
+			createIntentUpdateCommit(client, update, { branch: "main" }),
+		).rejects.toThrow("requires suggestedContent");
+	});
+
+	test("throws if currentContent is missing", async () => {
+		const client = createMockClient();
+
+		const update = {
+			nodePath: "AGENTS.md",
+			action: "update",
+			reason: "Update",
+			suggestedContent: "new",
+		} as IntentUpdate;
+
+		await expect(
+			createIntentUpdateCommit(client, update, { branch: "main" }),
+		).rejects.toThrow("requires currentContent");
+	});
+
+	test("throws if file does not exist", async () => {
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const client = createMockClient({
+			getFileContent: mockGetFileContent,
+		});
+
+		const update: IntentUpdate = {
+			nodePath: "AGENTS.md",
+			action: "update",
+			reason: "Update",
+			currentContent: "old",
+			suggestedContent: "new",
+		};
+
+		await expect(
+			createIntentUpdateCommit(client, update, { branch: "main" }),
+		).rejects.toThrow("file does not exist");
+	});
+
+	test("updates both nodePath and otherNodePath when specified", async () => {
+		let callCount = 0;
+		const mockGetFileContent = mock(async () => ({
+			sha: `existingsha${++callCount}`,
+			type: "file",
+			content: "SGVsbG8=",
+		}));
+
+		const updatedFiles: string[] = [];
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			updatedFiles.push(path);
+			return {
+				commit: {
+					sha: `newsha${updatedFiles.length}`,
+					html_url: `https://github.com/commit/newsha${updatedFiles.length}`,
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const client = createMockClient({
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		});
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			action: "update",
+			reason: "Updated API package",
+			currentContent: "# API\n\nOld.\n",
+			suggestedContent: "# API\n\nNew.\n",
+		};
+
+		await createIntentUpdateCommit(client, update, { branch: "main" });
+
+		expect(updatedFiles).toContain("packages/api/AGENTS.md");
+		expect(updatedFiles).toContain("packages/api/CLAUDE.md");
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(2);
+	});
+
+	test("does not update otherNodePath if it does not exist", async () => {
+		let getFileCallCount = 0;
+		const mockGetFileContent = mock(async (path: string) => {
+			getFileCallCount++;
+			if (path === "packages/api/AGENTS.md") {
+				return {
+					sha: "existingsha",
+					type: "file",
+					content: "SGVsbG8=",
+				};
+			}
+			// CLAUDE.md does not exist
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const updatedFiles: string[] = [];
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			updatedFiles.push(path);
+			return {
+				commit: {
+					sha: "newsha",
+					html_url: "https://github.com/commit/newsha",
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const client = createMockClient({
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		});
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			action: "update",
+			reason: "Updated API package",
+			currentContent: "# API\n\nOld.\n",
+			suggestedContent: "# API\n\nNew.\n",
+		};
+
+		await createIntentUpdateCommit(client, update, { branch: "main" });
+
+		// Only AGENTS.md should be updated
+		expect(updatedFiles).toContain("packages/api/AGENTS.md");
+		expect(updatedFiles).not.toContain("packages/api/CLAUDE.md");
 		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(1);
 	});
 });

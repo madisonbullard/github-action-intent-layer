@@ -234,7 +234,7 @@ prompts:
 
 ### Phase 9: Commit Operations
 - [x] 9.1 Implement `[INTENT:ADD]` commit creation
-- [ ] 9.2 Implement `[INTENT:UPDATE]` commit creation
+- [x] 9.2 Implement `[INTENT:UPDATE]` commit creation
 - [ ] 9.3 Implement `[INTENT:REVERT]` commit (file-level revert: restore file to pre-commit state using `appliedCommit` parent)
 - [ ] 9.4 Handle symlink creation in commits (create both files, one as symlink, respects `symlink_source`)
 - [ ] 9.5 Write unit tests for commit operations

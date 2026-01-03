@@ -264,3 +264,87 @@ export function parseIntentCommitMessage(message: string): {
 export function isIntentCommit(message: string): boolean {
 	return /^\[INTENT:(ADD|UPDATE|REVERT)\]/.test(message);
 }
+
+/**
+ * Create an [INTENT:UPDATE] commit for an existing intent file.
+ *
+ * This updates an existing file in the repository with the suggested content
+ * from an intent update. The file must already exist.
+ *
+ * @param client - GitHub client for API operations
+ * @param update - The intent update with action="update"
+ * @param options - Commit options including branch
+ * @returns Result of the commit operation
+ * @throws Error if the file doesn't exist or update is not an update action
+ */
+export async function createIntentUpdateCommit(
+	client: GitHubClient,
+	update: IntentUpdate,
+	options: IntentCommitOptions,
+): Promise<CommitResult> {
+	// Validate the update is an update action
+	if (update.action !== "update") {
+		throw new Error(
+			`createIntentUpdateCommit requires action="update", got "${update.action}"`,
+		);
+	}
+
+	if (!update.suggestedContent) {
+		throw new Error("createIntentUpdateCommit requires suggestedContent");
+	}
+
+	if (!update.currentContent) {
+		throw new Error("createIntentUpdateCommit requires currentContent");
+	}
+
+	// Get the existing file SHA (required for updating)
+	const existingSha = await getFileSha(client, update.nodePath, options.branch);
+	if (!existingSha) {
+		throw new Error(
+			`Cannot update ${update.nodePath}: file does not exist. Use create action instead.`,
+		);
+	}
+
+	// Generate commit message
+	const commitMessage = generateUpdateCommitMessage(
+		update.nodePath,
+		update.reason,
+	);
+
+	// Update the file
+	const result = await client.createOrUpdateFile(
+		update.nodePath,
+		update.suggestedContent,
+		commitMessage,
+		options.branch,
+		existingSha, // Provide SHA to update existing file
+	);
+
+	// Handle the otherNodePath if both files are being managed
+	// For INTENT:UPDATE, if otherNodePath is specified, we update that file too
+	// with the same content (they're kept in sync)
+	if (update.otherNodePath) {
+		const otherExistingSha = await getFileSha(
+			client,
+			update.otherNodePath,
+			options.branch,
+		);
+		if (otherExistingSha) {
+			// Update the other file with the same content
+			await client.createOrUpdateFile(
+				update.otherNodePath,
+				update.suggestedContent,
+				`[INTENT:UPDATE] ${update.otherNodePath} - Sync with ${update.nodePath}`,
+				options.branch,
+				otherExistingSha,
+			);
+		}
+	}
+
+	return {
+		sha: result.commit.sha ?? "",
+		url: result.commit.html_url ?? "",
+		filePath: update.nodePath,
+		message: commitMessage,
+	};
+}
