@@ -266,6 +266,22 @@ export function isIntentCommit(message: string): boolean {
 }
 
 /**
+ * Options for creating a revert commit.
+ */
+export interface RevertCommitOptions {
+	/** Branch to commit to */
+	branch: string;
+	/** SHA of the commit that applied the intent change (to find parent state) */
+	appliedCommit: string;
+	/** Path to the intent file to revert */
+	nodePath: string;
+	/** Optional path to the other intent file (e.g., CLAUDE.md if nodePath is AGENTS.md) */
+	otherNodePath?: string;
+	/** Optional reason for the revert */
+	reason?: string;
+}
+
+/**
  * Create an [INTENT:UPDATE] commit for an existing intent file.
  *
  * This updates an existing file in the repository with the suggested content
@@ -345,6 +361,158 @@ export async function createIntentUpdateCommit(
 		sha: result.commit.sha ?? "",
 		url: result.commit.html_url ?? "",
 		filePath: update.nodePath,
+		message: commitMessage,
+	};
+}
+
+/**
+ * Get the content of a file at a specific commit.
+ * Returns undefined if the file didn't exist at that commit.
+ *
+ * @param client - GitHub client
+ * @param filePath - Path to the file
+ * @param ref - Git reference (commit SHA)
+ * @returns File content as string, or undefined if file didn't exist
+ */
+async function getFileContentAtCommit(
+	client: GitHubClient,
+	filePath: string,
+	ref: string,
+): Promise<string | undefined> {
+	try {
+		const content = await client.getFileContent(filePath, ref);
+		// Handle the case where content is an array (directory listing)
+		if (Array.isArray(content)) {
+			return undefined;
+		}
+		// Content is base64 encoded
+		if ("content" in content && content.content) {
+			return Buffer.from(content.content, "base64").toString("utf-8");
+		}
+		return undefined;
+	} catch (error) {
+		// File doesn't exist at this commit
+		if (isNotFoundError(error)) {
+			return undefined;
+		}
+		throw error;
+	}
+}
+
+/**
+ * Create an [INTENT:REVERT] commit that restores an intent file to its pre-commit state.
+ *
+ * This performs a file-level revert by:
+ * 1. Getting the parent commit of the appliedCommit
+ * 2. Fetching the file content from the parent commit
+ * 3. Either restoring that content or deleting the file if it didn't exist before
+ *
+ * @param client - GitHub client for API operations
+ * @param options - Revert options including appliedCommit SHA
+ * @returns Result of the commit operation
+ * @throws Error if the appliedCommit cannot be found or has no parent
+ */
+export async function createIntentRevertCommit(
+	client: GitHubClient,
+	options: RevertCommitOptions,
+): Promise<CommitResult> {
+	const { branch, appliedCommit, nodePath, otherNodePath, reason } = options;
+
+	// Get the commit to find its parent
+	const commit = await client.getCommit(appliedCommit);
+	const parents = commit.parents;
+
+	if (!parents || parents.length === 0) {
+		throw new Error(
+			`Cannot revert: commit ${appliedCommit} has no parent (is it the initial commit?)`,
+		);
+	}
+
+	// Use the first parent (for merge commits, this is typically the main branch)
+	const parentSha = parents[0]!.sha;
+
+	// Get the file content from the parent commit (before the intent change)
+	const previousContent = await getFileContentAtCommit(
+		client,
+		nodePath,
+		parentSha,
+	);
+
+	// Generate commit message
+	const commitMessage = generateRevertCommitMessage(nodePath, reason);
+
+	let result: { commit: { sha?: string; html_url?: string } };
+
+	if (previousContent === undefined) {
+		// File didn't exist before the intent commit - delete it
+		const currentSha = await getFileSha(client, nodePath, branch);
+		if (!currentSha) {
+			throw new Error(
+				`Cannot revert ${nodePath}: file no longer exists on branch ${branch}`,
+			);
+		}
+
+		result = await client.deleteFile(
+			nodePath,
+			commitMessage,
+			branch,
+			currentSha,
+		);
+	} else {
+		// File existed before - restore its previous content
+		const currentSha = await getFileSha(client, nodePath, branch);
+		if (!currentSha) {
+			throw new Error(
+				`Cannot revert ${nodePath}: file no longer exists on branch ${branch}`,
+			);
+		}
+
+		result = await client.createOrUpdateFile(
+			nodePath,
+			previousContent,
+			commitMessage,
+			branch,
+			currentSha,
+		);
+	}
+
+	// Handle the otherNodePath if both files are being managed
+	if (otherNodePath) {
+		const otherPreviousContent = await getFileContentAtCommit(
+			client,
+			otherNodePath,
+			parentSha,
+		);
+		const otherCurrentSha = await getFileSha(client, otherNodePath, branch);
+
+		if (otherCurrentSha) {
+			const otherCommitMessage = `[INTENT:REVERT] ${otherNodePath} - Sync with ${nodePath}`;
+
+			if (otherPreviousContent === undefined) {
+				// Other file didn't exist before - delete it
+				await client.deleteFile(
+					otherNodePath,
+					otherCommitMessage,
+					branch,
+					otherCurrentSha,
+				);
+			} else {
+				// Other file existed before - restore its previous content
+				await client.createOrUpdateFile(
+					otherNodePath,
+					otherPreviousContent,
+					otherCommitMessage,
+					branch,
+					otherCurrentSha,
+				);
+			}
+		}
+	}
+
+	return {
+		sha: result.commit.sha ?? "",
+		url: result.commit.html_url ?? "",
+		filePath: nodePath,
 		message: commitMessage,
 	};
 }

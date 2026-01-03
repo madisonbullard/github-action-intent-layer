@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { GitHubClient } from "../../src/github/client";
 import {
 	createIntentAddCommit,
+	createIntentRevertCommit,
 	createIntentUpdateCommit,
 	generateAddCommitMessage,
 	generateRevertCommitMessage,
@@ -10,6 +11,7 @@ import {
 	getFileSha,
 	isIntentCommit,
 	parseIntentCommitMessage,
+	type RevertCommitOptions,
 } from "../../src/github/commits";
 import type { IntentUpdate } from "../../src/opencode/output-schema";
 
@@ -718,5 +720,401 @@ describe("commit message round-trip", () => {
 		const parsedRevert = parseIntentCommitMessage(revertMessage);
 		expect(parsedRevert?.type).toBe("REVERT");
 		expect(parsedRevert?.nodePath).toBe("AGENTS.md");
+	});
+});
+
+describe("createIntentRevertCommit", () => {
+	test("restores file to previous content when file existed before", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "appliedcommitsha",
+			parents: [{ sha: "parentsha123" }],
+		}));
+
+		// Track which files and refs are being requested
+		const mockGetFileContent = mock(async (path: string, ref?: string) => {
+			if (ref === "parentsha123") {
+				// Return the previous content from the parent commit
+				return {
+					sha: "oldcontentsha",
+					type: "file",
+					content: Buffer.from("# Previous Content\n").toString("base64"),
+				};
+			}
+			// Current content on branch
+			return {
+				sha: "currentcontentsha",
+				type: "file",
+				content: Buffer.from("# Current Content\n").toString("base64"),
+			};
+		});
+
+		const mockCreateOrUpdateFile = mock(async () => ({
+			commit: {
+				sha: "revertcommitsha",
+				html_url: "https://github.com/owner/repo/commit/revertcommitsha",
+			},
+			content: {
+				sha: "blobsha",
+			},
+		}));
+
+		const client = {
+			getCommit: mockGetCommit,
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+			deleteFile: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "feature-branch",
+			appliedCommit: "appliedcommitsha",
+			nodePath: "packages/api/AGENTS.md",
+			reason: "User unchecked the box",
+		};
+
+		const result = await createIntentRevertCommit(client, options);
+
+		expect(result.sha).toBe("revertcommitsha");
+		expect(result.filePath).toBe("packages/api/AGENTS.md");
+		expect(result.message).toContain("[INTENT:REVERT]");
+		expect(result.message).toContain("User unchecked the box");
+
+		// Verify file was restored with previous content
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+			"packages/api/AGENTS.md",
+			"# Previous Content\n",
+			expect.stringContaining("[INTENT:REVERT]"),
+			"feature-branch",
+			"currentcontentsha",
+		);
+	});
+
+	test("deletes file when it did not exist before the intent commit", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "appliedcommitsha",
+			parents: [{ sha: "parentsha123" }],
+		}));
+
+		const mockGetFileContent = mock(async (_path: string, ref?: string) => {
+			if (ref === "parentsha123") {
+				// File didn't exist at parent commit
+				const error = new Error("Not Found") as Error & { status: number };
+				error.status = 404;
+				throw error;
+			}
+			// Current content on branch (file exists now)
+			return {
+				sha: "currentcontentsha",
+				type: "file",
+				content: Buffer.from("# New Content\n").toString("base64"),
+			};
+		});
+
+		const mockDeleteFile = mock(async () => ({
+			commit: {
+				sha: "deletecommitsha",
+				html_url: "https://github.com/owner/repo/commit/deletecommitsha",
+			},
+		}));
+
+		const client = {
+			getCommit: mockGetCommit,
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mock(async () => ({})),
+			deleteFile: mockDeleteFile,
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "feature-branch",
+			appliedCommit: "appliedcommitsha",
+			nodePath: "packages/api/AGENTS.md",
+		};
+
+		const result = await createIntentRevertCommit(client, options);
+
+		expect(result.sha).toBe("deletecommitsha");
+		expect(result.filePath).toBe("packages/api/AGENTS.md");
+
+		// Verify file was deleted
+		expect(mockDeleteFile).toHaveBeenCalledWith(
+			"packages/api/AGENTS.md",
+			expect.stringContaining("[INTENT:REVERT]"),
+			"feature-branch",
+			"currentcontentsha",
+		);
+	});
+
+	test("throws if commit has no parent", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "initialcommit",
+			parents: [],
+		}));
+
+		const client = {
+			getCommit: mockGetCommit,
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "main",
+			appliedCommit: "initialcommit",
+			nodePath: "AGENTS.md",
+		};
+
+		await expect(createIntentRevertCommit(client, options)).rejects.toThrow(
+			"has no parent",
+		);
+	});
+
+	test("throws if file no longer exists on branch", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "appliedcommitsha",
+			parents: [{ sha: "parentsha123" }],
+		}));
+
+		const mockGetFileContent = mock(async () => {
+			// File doesn't exist anywhere
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const client = {
+			getCommit: mockGetCommit,
+			getFileContent: mockGetFileContent,
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "feature-branch",
+			appliedCommit: "appliedcommitsha",
+			nodePath: "deleted/AGENTS.md",
+		};
+
+		await expect(createIntentRevertCommit(client, options)).rejects.toThrow(
+			"file no longer exists",
+		);
+	});
+
+	test("reverts both nodePath and otherNodePath when specified", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "appliedcommitsha",
+			parents: [{ sha: "parentsha123" }],
+		}));
+
+		const mockGetFileContent = mock(async (path: string, ref?: string) => {
+			if (ref === "parentsha123") {
+				// Previous content for both files
+				if (path === "packages/api/AGENTS.md") {
+					return {
+						sha: "oldagentssha",
+						type: "file",
+						content: Buffer.from("# Previous AGENTS\n").toString("base64"),
+					};
+				}
+				if (path === "packages/api/CLAUDE.md") {
+					return {
+						sha: "oldclaudesha",
+						type: "file",
+						content: Buffer.from("# Previous CLAUDE\n").toString("base64"),
+					};
+				}
+			}
+			// Current content on branch
+			if (path === "packages/api/AGENTS.md") {
+				return {
+					sha: "currentagentssha",
+					type: "file",
+					content: Buffer.from("# Current AGENTS\n").toString("base64"),
+				};
+			}
+			if (path === "packages/api/CLAUDE.md") {
+				return {
+					sha: "currentclaudesha",
+					type: "file",
+					content: Buffer.from("# Current CLAUDE\n").toString("base64"),
+				};
+			}
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const updatedFiles: string[] = [];
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			updatedFiles.push(path);
+			return {
+				commit: {
+					sha: `revertsha_${updatedFiles.length}`,
+					html_url: `https://github.com/commit/revertsha_${updatedFiles.length}`,
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const client = {
+			getCommit: mockGetCommit,
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+			deleteFile: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "feature-branch",
+			appliedCommit: "appliedcommitsha",
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+		};
+
+		await createIntentRevertCommit(client, options);
+
+		// Both files should be reverted
+		expect(updatedFiles).toContain("packages/api/AGENTS.md");
+		expect(updatedFiles).toContain("packages/api/CLAUDE.md");
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(2);
+	});
+
+	test("deletes otherNodePath if it did not exist before", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "appliedcommitsha",
+			parents: [{ sha: "parentsha123" }],
+		}));
+
+		const mockGetFileContent = mock(async (path: string, ref?: string) => {
+			if (ref === "parentsha123") {
+				// AGENTS.md existed before
+				if (path === "packages/api/AGENTS.md") {
+					return {
+						sha: "oldagentssha",
+						type: "file",
+						content: Buffer.from("# Previous AGENTS\n").toString("base64"),
+					};
+				}
+				// CLAUDE.md did NOT exist before
+				const error = new Error("Not Found") as Error & { status: number };
+				error.status = 404;
+				throw error;
+			}
+			// Current content on branch - both exist now
+			if (path === "packages/api/AGENTS.md") {
+				return {
+					sha: "currentagentssha",
+					type: "file",
+					content: Buffer.from("# Current AGENTS\n").toString("base64"),
+				};
+			}
+			if (path === "packages/api/CLAUDE.md") {
+				return {
+					sha: "currentclaudesha",
+					type: "file",
+					content: Buffer.from("# Current CLAUDE\n").toString("base64"),
+				};
+			}
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const updatedFiles: string[] = [];
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			updatedFiles.push(path);
+			return {
+				commit: {
+					sha: "revertsha",
+					html_url: "https://github.com/commit/revertsha",
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const deletedFiles: string[] = [];
+		const mockDeleteFile = mock(async (path: string) => {
+			deletedFiles.push(path);
+			return {
+				commit: {
+					sha: "deletesha",
+					html_url: "https://github.com/commit/deletesha",
+				},
+			};
+		});
+
+		const client = {
+			getCommit: mockGetCommit,
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+			deleteFile: mockDeleteFile,
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "feature-branch",
+			appliedCommit: "appliedcommitsha",
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+		};
+
+		await createIntentRevertCommit(client, options);
+
+		// AGENTS.md should be restored
+		expect(updatedFiles).toContain("packages/api/AGENTS.md");
+		// CLAUDE.md should be deleted (didn't exist before)
+		expect(deletedFiles).toContain("packages/api/CLAUDE.md");
+	});
+
+	test("uses default reason when not provided", async () => {
+		const mockGetCommit = mock(async () => ({
+			sha: "appliedcommitsha",
+			parents: [{ sha: "parentsha123" }],
+		}));
+
+		const mockGetFileContent = mock(async (_path: string, ref?: string) => {
+			if (ref === "parentsha123") {
+				return {
+					sha: "oldsha",
+					type: "file",
+					content: Buffer.from("# Previous\n").toString("base64"),
+				};
+			}
+			return {
+				sha: "currentsha",
+				type: "file",
+				content: Buffer.from("# Current\n").toString("base64"),
+			};
+		});
+
+		let capturedMessage = "";
+		const mockCreateOrUpdateFile = mock(
+			async (_path: string, _content: string, message: string) => {
+				capturedMessage = message;
+				return {
+					commit: {
+						sha: "revertsha",
+						html_url: "https://github.com/commit/revertsha",
+					},
+					content: {
+						sha: "blobsha",
+					},
+				};
+			},
+		);
+
+		const client = {
+			getCommit: mockGetCommit,
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+			deleteFile: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const options: RevertCommitOptions = {
+			branch: "main",
+			appliedCommit: "appliedcommitsha",
+			nodePath: "AGENTS.md",
+			// No reason provided - should use default
+		};
+
+		await createIntentRevertCommit(client, options);
+
+		expect(capturedMessage).toContain("Reverted via checkbox");
 	});
 });

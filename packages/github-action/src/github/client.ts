@@ -298,6 +298,31 @@ export class GitHubClient {
 		});
 		return data.default_branch;
 	}
+
+	/**
+	 * Get a commit by SHA
+	 */
+	async getCommit(sha: string) {
+		const { data } = await this.octokit.rest.repos.getCommit({
+			...this.repo,
+			ref: sha,
+		});
+		return data;
+	}
+
+	/**
+	 * Delete a file from the repository
+	 */
+	async deleteFile(path: string, message: string, branch: string, sha: string) {
+		const { data } = await this.octokit.rest.repos.deleteFile({
+			...this.repo,
+			path,
+			message,
+			branch,
+			sha,
+		});
+		return data;
+	}
 }
 
 /**
