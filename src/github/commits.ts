@@ -155,7 +155,7 @@ function getFilename(path: string): string {
  * @param targetPath - Path of the target file
  * @returns Relative symlink target (just the filename)
  */
-function getSymlinkTarget(symlinkPath: string, targetPath: string): string {
+function getSymlinkTarget(_symlinkPath: string, targetPath: string): string {
 	// Since both files are in the same directory, the target is just the filename
 	return getFilename(targetPath);
 }
@@ -371,8 +371,8 @@ export function parseIntentCommitMessage(message: string): {
 
 	return {
 		type: match[1] as "ADD" | "UPDATE" | "REVERT",
-		nodePath: match[2]!,
-		reason: match[3]!,
+		nodePath: match[2] ?? "",
+		reason: match[3] ?? "",
 	};
 }
 
@@ -661,7 +661,10 @@ export async function createIntentRevertCommit(
 	}
 
 	// Use the first parent (for merge commits, this is typically the main branch)
-	const parentSha = parents[0]!.sha;
+	const parentSha = parents[0]?.sha;
+	if (!parentSha) {
+		throw new Error(`Cannot revert: commit ${appliedCommit} parent has no SHA`);
+	}
 
 	// Get the file content from the parent commit (before the intent change)
 	const previousContent = await getFileContentAtCommit(

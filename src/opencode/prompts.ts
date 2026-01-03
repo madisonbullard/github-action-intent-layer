@@ -396,7 +396,7 @@ export function collectCustomPrompts(
 			if (!promptToFiles.has(promptText)) {
 				promptToFiles.set(promptText, []);
 			}
-			promptToFiles.get(promptText)!.push(file.filename);
+			promptToFiles.get(promptText)?.push(file.filename);
 		}
 	}
 

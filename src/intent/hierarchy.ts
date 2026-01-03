@@ -463,7 +463,7 @@ export function getCoveredFilesForNode(
 		}
 
 		// Check if file is ignored
-		if (ignore && ignore.ignores(filePath)) {
+		if (ignore?.ignores(filePath)) {
 			ignoredFiles.push(filePath);
 			continue;
 		}

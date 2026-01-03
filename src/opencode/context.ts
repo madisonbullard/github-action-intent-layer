@@ -20,11 +20,6 @@ import {
 	extractPRDiff,
 	extractPRMetadata,
 	extractPRReviewComments,
-	type LinkedIssue,
-	type PRChangedFile,
-	type PRCommit,
-	type PRMetadata,
-	type PRReviewComment,
 } from "../github/context";
 import {
 	type ChangedFilesMappingResult,
@@ -33,19 +28,12 @@ import {
 	identifySemanticBoundaries,
 	mapChangedFilesToNodes,
 	type NodesNeedingUpdateResult,
-	type NodeUpdateCandidate,
-	type ParentNodeReviewCandidate,
 	type ParentNodesReviewResult,
 	reviewParentNodes,
-	type SemanticBoundaryCandidate,
 	type SemanticBoundaryResult,
 } from "../intent/analyzer";
 import type { IntentLayerDetectionResult } from "../intent/detector";
-import {
-	buildHierarchies,
-	type IntentHierarchy,
-	type IntentNode,
-} from "../intent/hierarchy";
+import { buildHierarchies, type IntentHierarchy } from "../intent/hierarchy";
 import type { IntentLayerIgnore } from "../patterns/ignore";
 import type {
 	IntentContext,

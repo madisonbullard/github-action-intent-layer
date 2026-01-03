@@ -325,12 +325,15 @@ export function parseLinkedIssues(text: string): LinkedIssue[] {
 
 	for (const match of matches) {
 		const [rawMatch, keyword, owner, repo, issueNumber] = match;
+		if (!rawMatch || !keyword || !issueNumber) {
+			continue;
+		}
 		linkedIssues.push({
-			number: Number.parseInt(issueNumber!, 10),
+			number: Number.parseInt(issueNumber, 10),
 			owner: owner || null,
 			repo: repo || null,
-			keyword: keyword!.toLowerCase(),
-			rawMatch: rawMatch!,
+			keyword: keyword.toLowerCase(),
+			rawMatch: rawMatch,
 		});
 	}
 

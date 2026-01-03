@@ -131,7 +131,7 @@ export function mapChangedFilesToNodes(
 		if (!byNode.has(nodeKey)) {
 			byNode.set(nodeKey, []);
 		}
-		byNode.get(nodeKey)!.push(coverage);
+		byNode.get(nodeKey)?.push(coverage);
 
 		// Count covered vs uncovered (ignoring the ignored status for this count)
 		if (coverage.coveringNode) {
@@ -511,7 +511,7 @@ export function filterIgnoredFiles(
 		if (!byNode.has(nodeKey)) {
 			byNode.set(nodeKey, []);
 		}
-		byNode.get(nodeKey)!.push(coverage);
+		byNode.get(nodeKey)?.push(coverage);
 	}
 
 	// Recalculate summary
@@ -596,7 +596,7 @@ export function reviewParentNodes(
 			if (!parentToChildren.has(parentPath)) {
 				parentToChildren.set(parentPath, []);
 			}
-			parentToChildren.get(parentPath)!.push(candidate);
+			parentToChildren.get(parentPath)?.push(candidate);
 		}
 	}
 
@@ -605,8 +605,9 @@ export function reviewParentNodes(
 
 	for (const [parentPath, children] of parentToChildren) {
 		// Get the actual parent node from one of the children's ancestors
-		const parentNode = children[0]!.node.parent
-			? findParentByPath(children[0]!.node, parentPath)
+		const firstChild = children[0];
+		const parentNode = firstChild?.node.parent
+			? findParentByPath(firstChild.node, parentPath)
 			: undefined;
 
 		if (!parentNode) {
@@ -937,7 +938,7 @@ function groupFilesByDirectory(
 		if (!byDirectory.has(directory)) {
 			byDirectory.set(directory, []);
 		}
-		byDirectory.get(directory)!.push(file);
+		byDirectory.get(directory)?.push(file);
 	}
 
 	return byDirectory;
@@ -990,7 +991,8 @@ function isPackageBoundary(directory: string): boolean {
 	if (parts.length < 2) return false;
 
 	const packageRoots = ["packages", "apps", "services", "libs", "modules"];
-	return packageRoots.includes(parts[0]!.toLowerCase());
+	const firstPart = parts[0]?.toLowerCase();
+	return firstPart ? packageRoots.includes(firstPart) : false;
 }
 
 /**
