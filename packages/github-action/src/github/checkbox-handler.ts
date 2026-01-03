@@ -10,6 +10,8 @@ import type { SymlinkSource } from "../config/schema.js";
 import type { IntentUpdate } from "../opencode/output-schema.js";
 import type { GitHubClient } from "./client.js";
 import {
+	addCommittedStatus,
+	addRevertedStatus,
 	type CommentMarkerData,
 	clearCommentMarkerAppliedCommit,
 	isCheckboxChecked,
@@ -420,11 +422,12 @@ export async function handleCheckedCheckbox(
 		};
 	}
 
-	// Step 5: Update the comment marker with appliedCommit
-	const updatedBody = updateCommentMarkerWithCommit(
+	// Step 5: Update the comment marker with appliedCommit and add committed status
+	let updatedBody = updateCommentMarkerWithCommit(
 		commentBody,
 		commitResult.sha,
 	);
+	updatedBody = addCommittedStatus(updatedBody, commitResult.sha);
 	await client.updateComment(commentId, updatedBody);
 
 	return {
@@ -512,8 +515,9 @@ export async function handleUncheckedCheckbox(
 		};
 	}
 
-	// Step 3: Update the comment marker to clear the appliedCommit
-	const updatedBody = clearCommentMarkerAppliedCommit(commentBody);
+	// Step 3: Update the comment marker to clear the appliedCommit and add reverted status
+	let updatedBody = clearCommentMarkerAppliedCommit(commentBody);
+	updatedBody = addRevertedStatus(updatedBody, commitResult.sha);
 	await client.updateComment(commentId, updatedBody);
 
 	return {

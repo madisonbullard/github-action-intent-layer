@@ -246,7 +246,7 @@ prompts:
 - [x] 10.3 Parse node path + `appliedCommit` + `headSha` from hidden marker
 - [x] 10.4 If checked: ensure current PR `headSha` matches marker `headSha`, then create intent commit (`[INTENT:ADD]` or `[INTENT:UPDATE]`) and update marker `appliedCommit`
 - [x] 10.5 If unchecked: if no `appliedCommit`, do nothing; otherwise perform file-level revert (restore file to pre-commit state)
-- [ ] 10.6 Update comment to reflect new state (committed/reverted)
+- [x] 10.6 Update comment to reflect new state (committed/reverted)
 - [ ] 10.7 Write unit tests for checkbox handler
 
 ### Phase 11: PR Output Mode (`output: new_pr`)

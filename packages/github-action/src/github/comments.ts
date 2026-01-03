@@ -361,6 +361,120 @@ export function isCommentResolved(commentBody: string): boolean {
 }
 
 /**
+ * Status marker prefix for committed state.
+ */
+export const COMMITTED_STATUS_MARKER = "**COMMITTED**";
+
+/**
+ * Status marker prefix for reverted state.
+ */
+export const REVERTED_STATUS_MARKER = "**REVERTED**";
+
+/**
+ * Add a committed status message to a comment.
+ *
+ * This is called after a checkbox is checked and the change is successfully committed.
+ * Updates the comment to show the commit SHA and status.
+ *
+ * @param commentBody - The existing comment body
+ * @param commitSha - The SHA of the commit that was created
+ * @returns Updated comment body with committed status
+ */
+export function addCommittedStatus(
+	commentBody: string,
+	commitSha: string,
+): string {
+	// Remove any existing status message first
+	let cleanBody = removeStatusMessage(commentBody);
+
+	// Find the checkbox line and add status after it
+	const checkboxPattern = /- \[x\] Apply this change/;
+	const shortSha = commitSha.substring(0, 7);
+
+	cleanBody = cleanBody.replace(
+		checkboxPattern,
+		`- [x] Apply this change\n\n${COMMITTED_STATUS_MARKER} - Change applied in commit \`${shortSha}\``,
+	);
+
+	return cleanBody;
+}
+
+/**
+ * Add a reverted status message to a comment.
+ *
+ * This is called after a checkbox is unchecked and the change is successfully reverted.
+ * Updates the comment to show the revert status.
+ *
+ * @param commentBody - The existing comment body
+ * @param revertCommitSha - The SHA of the revert commit (optional, for display)
+ * @returns Updated comment body with reverted status
+ */
+export function addRevertedStatus(
+	commentBody: string,
+	revertCommitSha?: string,
+): string {
+	// Remove any existing status message first
+	let cleanBody = removeStatusMessage(commentBody);
+
+	// Find the checkbox line and add status after it
+	const checkboxPattern = /- \[ \] Apply this change/;
+	const statusMessage = revertCommitSha
+		? `${REVERTED_STATUS_MARKER} - Change reverted in commit \`${revertCommitSha.substring(0, 7)}\``
+		: `${REVERTED_STATUS_MARKER} - Change has been reverted`;
+
+	cleanBody = cleanBody.replace(
+		checkboxPattern,
+		`- [ ] Apply this change\n\n${statusMessage}`,
+	);
+
+	return cleanBody;
+}
+
+/**
+ * Remove any existing status message from a comment.
+ *
+ * Status messages include COMMITTED, REVERTED markers that appear after the checkbox.
+ *
+ * @param commentBody - The comment body to clean
+ * @returns Comment body with status message removed
+ */
+export function removeStatusMessage(commentBody: string): string {
+	// Remove COMMITTED status
+	let cleanBody = commentBody.replace(
+		/\n\n\*\*COMMITTED\*\* - Change applied in commit `[a-f0-9]+`/g,
+		"",
+	);
+
+	// Remove REVERTED status
+	cleanBody = cleanBody.replace(
+		/\n\n\*\*REVERTED\*\* - Change (reverted in commit `[a-f0-9]+`|has been reverted)/g,
+		"",
+	);
+
+	return cleanBody;
+}
+
+/**
+ * Check if a comment has a committed status.
+ *
+ * @param commentBody - The comment body to check
+ * @returns True if the comment has a committed status
+ */
+export function hasCommittedStatus(commentBody: string): boolean {
+	return commentBody.includes(COMMITTED_STATUS_MARKER);
+}
+
+/**
+ * Check if a comment has a reverted status.
+ *
+ * @param commentBody - The comment body to check
+ * @returns True if the comment has a reverted status
+ */
+export function hasRevertedStatus(commentBody: string): boolean {
+	return commentBody.includes(REVERTED_STATUS_MARKER);
+}
+
+/**
  * Find all intent layer comments in a list of comments.
  *
  * @param comments - Array of comment objects with body property
