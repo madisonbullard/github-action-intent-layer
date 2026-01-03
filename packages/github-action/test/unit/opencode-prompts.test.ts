@@ -15,6 +15,7 @@ import {
 	buildNodeSplitPrompt,
 	buildSingleNodeUpdatePrompt,
 	CONTENT_GUIDELINES,
+	collectCustomPrompts,
 	formatChangedFiles,
 	formatCommits,
 	formatLinkedIssues,
@@ -31,6 +32,7 @@ import {
 	type PRContext,
 	type PromptConfig,
 } from "../../src/opencode/prompts";
+import { PatternMatchedPromptResolver } from "../../src/patterns/prompts";
 
 // ============================================================================
 // Test fixtures
@@ -913,5 +915,247 @@ describe("buildNodeSplitPrompt", () => {
 		expect(result).toContain('"updates"');
 		expect(result).toContain('"create"');
 		expect(result).toContain('"update"');
+	});
+});
+
+describe("collectCustomPrompts", () => {
+	test("returns empty string when no resolver provided", () => {
+		const changedFiles = [createMockChangedFile({ filename: "src/index.ts" })];
+		const result = collectCustomPrompts(changedFiles, undefined, "agents");
+		expect(result).toBe("");
+	});
+
+	test("returns empty string when resolver has no patterns", () => {
+		const changedFiles = [createMockChangedFile({ filename: "src/index.ts" })];
+		const resolver = new PatternMatchedPromptResolver();
+		const result = collectCustomPrompts(changedFiles, resolver, "agents");
+		expect(result).toBe("");
+	});
+
+	test("returns empty string when no patterns match", () => {
+		const changedFiles = [createMockChangedFile({ filename: "src/index.ts" })];
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "test/**", prompt: "Test guidance" },
+		]);
+		const result = collectCustomPrompts(changedFiles, resolver, "agents");
+		expect(result).toBe("");
+	});
+
+	test("returns formatted custom prompts when patterns match", () => {
+		const changedFiles = [
+			createMockChangedFile({ filename: "packages/api/client.ts" }),
+			createMockChangedFile({ filename: "packages/api/handlers.ts" }),
+		];
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "packages/api/**", prompt: "API-specific guidance" },
+		]);
+		const result = collectCustomPrompts(changedFiles, resolver, "agents");
+
+		expect(result).toContain("## Custom Guidance");
+		expect(result).toContain("API-specific guidance");
+		expect(result).toContain("packages/api/client.ts");
+	});
+
+	test("uses file-type specific prompts when available", () => {
+		const changedFiles = [createMockChangedFile({ filename: "src/index.ts" })];
+		const resolver = new PatternMatchedPromptResolver([
+			{
+				pattern: "**/*",
+				prompt: "General guidance",
+				agents_prompt: "Agents-specific guidance",
+				claude_prompt: "Claude-specific guidance",
+			},
+		]);
+
+		const agentsResult = collectCustomPrompts(changedFiles, resolver, "agents");
+		expect(agentsResult).toContain("Agents-specific guidance");
+		expect(agentsResult).not.toContain("General guidance");
+
+		const claudeResult = collectCustomPrompts(changedFiles, resolver, "claude");
+		expect(claudeResult).toContain("Claude-specific guidance");
+		expect(claudeResult).not.toContain("General guidance");
+	});
+
+	test("groups files by matching prompt to avoid duplication", () => {
+		const changedFiles = [
+			createMockChangedFile({ filename: "src/a.ts" }),
+			createMockChangedFile({ filename: "src/b.ts" }),
+			createMockChangedFile({ filename: "src/c.ts" }),
+			createMockChangedFile({ filename: "src/d.ts" }),
+		];
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "**/*", prompt: "Same guidance for all" },
+		]);
+
+		const result = collectCustomPrompts(changedFiles, resolver, "agents");
+
+		// Should only appear once, not four times
+		const matches = result.match(/Same guidance for all/g);
+		expect(matches).toHaveLength(1);
+
+		// Should show truncated file list with +N more
+		expect(result).toContain("+1 more");
+	});
+});
+
+describe("buildAnalysisPrompt with custom prompts", () => {
+	test("includes custom prompts section when resolver matches files", () => {
+		const prContext: PRContext = {
+			metadata: createMockPRMetadata(),
+			commits: [],
+			linkedIssues: [],
+			reviewComments: [],
+			changedFiles: [
+				createMockChangedFile({ filename: "packages/api/client.ts" }),
+			],
+		};
+
+		const intentContext: IntentContext = {
+			nodesToUpdate: [],
+			parentNodesToReview: [],
+			potentialNewNodes: [],
+		};
+
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "packages/api/**", prompt: "API package guidance" },
+		]);
+
+		const config: PromptConfig = {
+			fileType: "agents",
+			newNodesAllowed: true,
+			splitLargeNodes: false,
+			promptResolver: resolver,
+		};
+
+		const result = buildAnalysisPrompt(prContext, intentContext, config);
+
+		expect(result).toContain("## Custom Guidance");
+		expect(result).toContain("API package guidance");
+	});
+
+	test("omits custom prompts section when no patterns match", () => {
+		const prContext: PRContext = {
+			metadata: createMockPRMetadata(),
+			commits: [],
+			linkedIssues: [],
+			reviewComments: [],
+			changedFiles: [createMockChangedFile({ filename: "src/index.ts" })],
+		};
+
+		const intentContext: IntentContext = {
+			nodesToUpdate: [],
+			parentNodesToReview: [],
+			potentialNewNodes: [],
+		};
+
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "test/**", prompt: "Test guidance" },
+		]);
+
+		const config: PromptConfig = {
+			fileType: "agents",
+			newNodesAllowed: true,
+			splitLargeNodes: false,
+			promptResolver: resolver,
+		};
+
+		const result = buildAnalysisPrompt(prContext, intentContext, config);
+
+		expect(result).not.toContain("## Custom Guidance");
+	});
+});
+
+describe("buildSingleNodeUpdatePrompt with custom prompts", () => {
+	test("includes custom prompts when resolver matches files", () => {
+		const nodeWithContent: IntentNodeWithContent = {
+			node: {
+				file: createMockIntentFile("packages/api/AGENTS.md"),
+				directory: "packages/api",
+				parent: undefined,
+				children: [],
+				depth: 1,
+			},
+			currentContent: "# API",
+		};
+
+		const changedFiles = [
+			createMockChangedFile({ filename: "packages/api/client.ts" }),
+		];
+
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "packages/api/**", prompt: "API guidance" },
+		]);
+
+		const result = buildSingleNodeUpdatePrompt(
+			nodeWithContent,
+			changedFiles,
+			"API changes",
+			createMockPRMetadata(),
+			"agents",
+			resolver,
+		);
+
+		expect(result).toContain("## Custom Guidance");
+		expect(result).toContain("API guidance");
+	});
+});
+
+describe("buildNewNodePrompt with custom prompts", () => {
+	test("includes custom prompts when resolver matches files", () => {
+		const candidate: SemanticBoundaryCandidate = {
+			directory: "packages/api",
+			suggestedNodePath: "packages/api/AGENTS.md",
+			uncoveredFiles: [
+				{
+					file: createMockChangedFile({ filename: "packages/api/index.ts" }),
+					coveringNode: undefined,
+					isIgnored: false,
+				},
+			],
+			changeSummary: {
+				filesAdded: 1,
+				filesModified: 0,
+				filesRemoved: 0,
+				filesRenamed: 0,
+				totalAdditions: 50,
+				totalDeletions: 0,
+			},
+			reason: "New package",
+			confidence: 0.8,
+		};
+
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "packages/api/**", prompt: "API package guidance" },
+		]);
+
+		const result = buildNewNodePrompt(
+			candidate,
+			createMockPRMetadata(),
+			"agents",
+			resolver,
+		);
+
+		expect(result).toContain("## Custom Guidance");
+		expect(result).toContain("API package guidance");
+	});
+});
+
+describe("buildInitializationPrompt with custom prompts", () => {
+	test("includes custom prompts when resolver matches files", () => {
+		const changedFiles = [createMockChangedFile({ filename: "src/index.ts" })];
+
+		const resolver = new PatternMatchedPromptResolver([
+			{ pattern: "src/**", prompt: "Source file guidance" },
+		]);
+
+		const result = buildInitializationPrompt(
+			createMockPRMetadata(),
+			changedFiles,
+			"agents",
+			resolver,
+		);
+
+		expect(result).toContain("## Custom Guidance");
+		expect(result).toContain("Source file guidance");
 	});
 });

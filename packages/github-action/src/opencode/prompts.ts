@@ -20,6 +20,7 @@ import type {
 	SemanticBoundaryCandidate,
 } from "../intent/analyzer";
 import type { IntentNode } from "../intent/hierarchy";
+import type { PatternMatchedPromptResolver } from "../patterns/prompts";
 
 /**
  * The JSON output schema description that is included in prompts
@@ -88,8 +89,8 @@ export interface PromptConfig {
 	newNodesAllowed: boolean;
 	/** Whether to suggest splitting large nodes */
 	splitLargeNodes: boolean;
-	/** Custom prompt patterns (pattern-matched prompts from user config) */
-	customPrompts?: Map<string, string>;
+	/** Pattern-matched custom prompts resolver from user config */
+	promptResolver?: PatternMatchedPromptResolver;
 }
 
 /**
@@ -367,6 +368,62 @@ export function formatSemanticBoundaryCandidates(
 }
 
 /**
+ * Collect custom prompts for a set of changed files using the pattern resolver.
+ *
+ * Groups files by their matched prompt to avoid duplication, and returns
+ * formatted output suitable for inclusion in analysis prompts.
+ *
+ * @param changedFiles - Files that changed in the PR
+ * @param resolver - Pattern-matched prompt resolver
+ * @param fileType - Which file type is being managed ('agents' or 'claude')
+ * @returns Formatted custom prompts section, or empty string if no matches
+ */
+export function collectCustomPrompts(
+	changedFiles: PRChangedFile[],
+	resolver: PatternMatchedPromptResolver | undefined,
+	fileType: "agents" | "claude",
+): string {
+	if (!resolver || !resolver.hasPatterns()) {
+		return "";
+	}
+
+	// Group files by their resolved prompt text to avoid duplicating instructions
+	const promptToFiles = new Map<string, string[]>();
+
+	for (const file of changedFiles) {
+		const promptText = resolver.getPromptForFile(file.filename, fileType);
+		if (promptText) {
+			if (!promptToFiles.has(promptText)) {
+				promptToFiles.set(promptText, []);
+			}
+			promptToFiles.get(promptText)!.push(file.filename);
+		}
+	}
+
+	if (promptToFiles.size === 0) {
+		return "";
+	}
+
+	const lines: string[] = [
+		"## Custom Guidance",
+		"",
+		"The following custom guidance has been configured for specific file patterns in this repository:",
+		"",
+	];
+
+	for (const [promptText, files] of promptToFiles) {
+		lines.push(
+			`### Files: ${files.length > 3 ? `${files.slice(0, 3).join(", ")} (+${files.length - 3} more)` : files.join(", ")}`,
+		);
+		lines.push("");
+		lines.push(promptText);
+		lines.push("");
+	}
+
+	return lines.join("\n");
+}
+
+/**
  * Build the complete analysis prompt.
  *
  * @param prContext - Context about the pull request
@@ -453,6 +510,19 @@ export function buildAnalysisPrompt(
 		),
 	);
 
+	// Custom prompts from pattern-matched configuration
+	// For "both" fileType, we use "agents" as the primary type for custom prompts
+	const effectiveFileType =
+		config.fileType === "both" ? "agents" : config.fileType;
+	const customPromptsSection = collectCustomPrompts(
+		prContext.changedFiles,
+		config.promptResolver,
+		effectiveFileType,
+	);
+	if (customPromptsSection) {
+		sections.push(customPromptsSection);
+	}
+
 	// Final instructions
 	sections.push("## Your Task");
 	sections.push("");
@@ -487,6 +557,7 @@ export function buildAnalysisPrompt(
  * @param updateReason - Why this node needs updating
  * @param prMetadata - PR metadata for context
  * @param fileType - Which file type is being managed
+ * @param promptResolver - Optional pattern-matched prompt resolver for custom guidance
  * @returns Prompt string for single-node update
  */
 export function buildSingleNodeUpdatePrompt(
@@ -495,6 +566,7 @@ export function buildSingleNodeUpdatePrompt(
 	updateReason: string,
 	prMetadata: PRMetadata,
 	fileType: "agents" | "claude",
+	promptResolver?: PatternMatchedPromptResolver,
 ): string {
 	const sections: string[] = [];
 	const { node, currentContent } = nodeWithContent;
@@ -558,6 +630,16 @@ export function buildSingleNodeUpdatePrompt(
 		}
 	}
 	sections.push("");
+
+	// Custom prompts from pattern-matched configuration
+	const customPromptsSection = collectCustomPrompts(
+		changedFiles,
+		promptResolver,
+		fileType,
+	);
+	if (customPromptsSection) {
+		sections.push(customPromptsSection);
+	}
 
 	sections.push("Respond with ONLY the JSON object. No other text.");
 
@@ -717,12 +799,14 @@ export function buildNodeSplitPrompt(
  * @param candidate - The semantic boundary candidate
  * @param prMetadata - PR metadata for context
  * @param fileType - Which file type to create
+ * @param promptResolver - Optional pattern-matched prompt resolver for custom guidance
  * @returns Prompt string for new node creation
  */
 export function buildNewNodePrompt(
 	candidate: SemanticBoundaryCandidate,
 	prMetadata: PRMetadata,
 	fileType: "agents" | "claude",
+	promptResolver?: PatternMatchedPromptResolver,
 ): string {
 	const sections: string[] = [];
 
@@ -776,6 +860,17 @@ export function buildNewNodePrompt(
 	}
 	sections.push("");
 
+	// Custom prompts from pattern-matched configuration
+	const changedFiles = candidate.uncoveredFiles.map((cf) => cf.file);
+	const customPromptsSection = collectCustomPrompts(
+		changedFiles,
+		promptResolver,
+		fileType,
+	);
+	if (customPromptsSection) {
+		sections.push(customPromptsSection);
+	}
+
 	sections.push(
 		"Create content that documents what this directory contains and how AI agents should work with it.",
 	);
@@ -792,12 +887,14 @@ export function buildNewNodePrompt(
  * @param prMetadata - PR metadata for context
  * @param changedFiles - Files changed in the PR
  * @param fileType - Which file type to initialize
+ * @param promptResolver - Optional pattern-matched prompt resolver for custom guidance
  * @returns Prompt string for initialization
  */
 export function buildInitializationPrompt(
 	prMetadata: PRMetadata,
 	changedFiles: PRChangedFile[],
 	fileType: "agents" | "claude",
+	promptResolver?: PatternMatchedPromptResolver,
 ): string {
 	const sections: string[] = [];
 	const fileName = fileType === "agents" ? "AGENTS.md" : "CLAUDE.md";
@@ -836,6 +933,16 @@ export function buildInitializationPrompt(
 		sections.push(`- ... and ${changedFiles.length - 30} more files`);
 	}
 	sections.push("");
+
+	// Custom prompts from pattern-matched configuration
+	const customPromptsSection = collectCustomPrompts(
+		changedFiles,
+		promptResolver,
+		fileType,
+	);
+	if (customPromptsSection) {
+		sections.push(customPromptsSection);
+	}
 
 	sections.push("Respond with ONLY the JSON object. No other text.");
 
