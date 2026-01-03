@@ -268,7 +268,7 @@ prompts:
 ### Phase 13: Integration Testing
 - [x] 13.1 Create test repository with various intent layer configs
 - [x] 13.2 Integration test: no intent layer → initialization suggestion
-- [ ] 13.3 Integration test: update existing node
+- [x] 13.3 Integration test: update existing node
 - [ ] 13.4 Integration test: propose new node (`new_nodes: true`)
 - [ ] 13.5 Integration test: checkbox toggle → commit
 - [ ] 13.6 Integration test: checkbox untoggle → revert
