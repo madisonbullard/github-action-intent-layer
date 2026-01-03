@@ -262,7 +262,7 @@ prompts:
 - [x] 12.4 Handle API rate limits (retry with backoff)
 - [x] 12.5 Handle model access errors → fail action with clear error message (no PR comment)
 - [x] 12.6 Fail checkbox-handler if history is insufficient (requires `fetch-depth: 0`)
-- [ ] 12.7 Ensure action fails cleanly with informative error messages
+- [x] 12.7 Ensure action fails cleanly with informative error messages
 - [ ] 12.8 Fail action if `symlink: true` on Windows (unsupported platform)
 
 ### Phase 13: Integration Testing
