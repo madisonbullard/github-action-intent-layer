@@ -5,7 +5,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	buildSessionTitle,
+	detectModelAccessError,
+	formatModelAccessErrorMessage,
 	IntentAnalysisSession,
+	ModelAccessError,
 	parseModelString,
 	SessionError,
 } from "../../src/opencode/session";
@@ -419,6 +422,429 @@ describe("OpenCode Session", () => {
 			await expect(session.prompt({ prompt: "test" })).rejects.toThrow(
 				SessionError,
 			);
+		});
+
+		test("prompt throws ModelAccessError for 401 status code", async () => {
+			const mockClient = createMockClient({
+				prompt: async () => {
+					const error = new Error("Unauthorized") as Error & { status: number };
+					error.status = 401;
+					throw error;
+				},
+			});
+
+			const session = new IntentAnalysisSession(
+				mockClient as never,
+				"test-id",
+				{ providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+			);
+
+			await expect(session.prompt({ prompt: "test" })).rejects.toThrow(
+				ModelAccessError,
+			);
+		});
+
+		test("prompt throws ModelAccessError for authentication_error code", async () => {
+			const mockClient = createMockClient({
+				prompt: async () => {
+					const error = new Error("Invalid API key") as Error & {
+						code: string;
+					};
+					error.code = "authentication_error";
+					throw error;
+				},
+			});
+
+			const session = new IntentAnalysisSession(
+				mockClient as never,
+				"test-id",
+				{ providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+			);
+
+			await expect(session.prompt({ prompt: "test" })).rejects.toThrow(
+				ModelAccessError,
+			);
+		});
+
+		test("prompt throws ModelAccessError for 429 rate limit", async () => {
+			const mockClient = createMockClient({
+				prompt: async () => {
+					const error = new Error("Rate limited") as Error & { status: number };
+					error.status = 429;
+					throw error;
+				},
+			});
+
+			const session = new IntentAnalysisSession(
+				mockClient as never,
+				"test-id",
+				{ providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+			);
+
+			await expect(session.prompt({ prompt: "test" })).rejects.toThrow(
+				ModelAccessError,
+			);
+		});
+
+		test("prompt throws ModelAccessError for 404 model not found", async () => {
+			const mockClient = createMockClient({
+				prompt: async () => {
+					const error = new Error("Model not found") as Error & {
+						status: number;
+					};
+					error.status = 404;
+					throw error;
+				},
+			});
+
+			const session = new IntentAnalysisSession(
+				mockClient as never,
+				"test-id",
+				{ providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+			);
+
+			await expect(session.prompt({ prompt: "test" })).rejects.toThrow(
+				ModelAccessError,
+			);
+		});
+	});
+
+	describe("ModelAccessError", () => {
+		test("creates error with message", () => {
+			const error = new ModelAccessError("test message");
+			expect(error.message).toBe("test message");
+			expect(error.name).toBe("ModelAccessError");
+			expect(error.originalCause).toBeUndefined();
+			expect(error.statusCode).toBeUndefined();
+			expect(error.errorCode).toBeUndefined();
+		});
+
+		test("creates error with all options", () => {
+			const cause = new Error("underlying error");
+			const error = new ModelAccessError("test message", {
+				cause,
+				statusCode: 401,
+				errorCode: "authentication_error",
+			});
+			expect(error.message).toBe("test message");
+			expect(error.originalCause).toBe(cause);
+			expect(error.statusCode).toBe(401);
+			expect(error.errorCode).toBe("authentication_error");
+		});
+
+		test("isAuthenticationError returns true for 401", () => {
+			const error = new ModelAccessError("test", { statusCode: 401 });
+			expect(error.isAuthenticationError()).toBe(true);
+			expect(error.isRateLimitError()).toBe(false);
+			expect(error.isModelUnavailableError()).toBe(false);
+		});
+
+		test("isAuthenticationError returns true for authentication_error code", () => {
+			const error = new ModelAccessError("test", {
+				errorCode: "authentication_error",
+			});
+			expect(error.isAuthenticationError()).toBe(true);
+		});
+
+		test("isAuthenticationError returns true for invalid_api_key code", () => {
+			const error = new ModelAccessError("test", {
+				errorCode: "invalid_api_key",
+			});
+			expect(error.isAuthenticationError()).toBe(true);
+		});
+
+		test("isRateLimitError returns true for 429", () => {
+			const error = new ModelAccessError("test", { statusCode: 429 });
+			expect(error.isRateLimitError()).toBe(true);
+			expect(error.isAuthenticationError()).toBe(false);
+		});
+
+		test("isRateLimitError returns true for rate_limit_error code", () => {
+			const error = new ModelAccessError("test", {
+				errorCode: "rate_limit_error",
+			});
+			expect(error.isRateLimitError()).toBe(true);
+		});
+
+		test("isModelUnavailableError returns true for 404", () => {
+			const error = new ModelAccessError("test", { statusCode: 404 });
+			expect(error.isModelUnavailableError()).toBe(true);
+			expect(error.isAuthenticationError()).toBe(false);
+		});
+
+		test("isModelUnavailableError returns true for model_not_found code", () => {
+			const error = new ModelAccessError("test", {
+				errorCode: "model_not_found",
+			});
+			expect(error.isModelUnavailableError()).toBe(true);
+		});
+
+		test("is instanceof Error", () => {
+			const error = new ModelAccessError("test");
+			expect(error instanceof Error).toBe(true);
+			expect(error instanceof ModelAccessError).toBe(true);
+		});
+	});
+
+	describe("detectModelAccessError", () => {
+		test("returns false for null/undefined", () => {
+			expect(detectModelAccessError(null).isModelAccessError).toBe(false);
+			expect(detectModelAccessError(undefined).isModelAccessError).toBe(false);
+		});
+
+		test("detects 401 status code from Error", () => {
+			const error = new Error("Unauthorized") as Error & { status: number };
+			error.status = 401;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(401);
+			expect(result.message).toBe("Unauthorized");
+		});
+
+		test("detects 429 status code from Error", () => {
+			const error = new Error("Rate limited") as Error & { status: number };
+			error.status = 429;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(429);
+		});
+
+		test("detects 404 status code from Error", () => {
+			const error = new Error("Not found") as Error & { status: number };
+			error.status = 404;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(404);
+		});
+
+		test("detects 403 status code from Error", () => {
+			const error = new Error("Forbidden") as Error & { status: number };
+			error.status = 403;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(403);
+		});
+
+		test("detects 402 quota exceeded status code", () => {
+			const error = new Error("Payment required") as Error & { status: number };
+			error.status = 402;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(402);
+		});
+
+		test("detects statusCode property from Error", () => {
+			const error = new Error("Error") as Error & { statusCode: number };
+			error.statusCode = 401;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(401);
+		});
+
+		test("detects code property from Error", () => {
+			const error = new Error("Invalid key") as Error & { code: string };
+			error.code = "authentication_error";
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.errorCode).toBe("authentication_error");
+		});
+
+		test("detects error_code property from Error", () => {
+			const error = new Error("Error") as Error & { error_code: string };
+			error.error_code = "rate_limit_error";
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.errorCode).toBe("rate_limit_error");
+		});
+
+		test("detects error.type property from Error", () => {
+			const error = new Error("Error") as Error & {
+				error: { type: string };
+			};
+			error.error = { type: "model_not_found" };
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.errorCode).toBe("model_not_found");
+		});
+
+		test("detects status in response object from Error", () => {
+			const error = new Error("Error") as Error & {
+				response: { status: number };
+			};
+			error.response = { status: 401 };
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(401);
+		});
+
+		test("detects plain object with status", () => {
+			const error = { status: 429, message: "Rate limited" };
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.statusCode).toBe(429);
+			expect(result.message).toBe("Rate limited");
+		});
+
+		test("detects plain object with error code", () => {
+			const error = { code: "permission_denied", message: "Access denied" };
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(true);
+			expect(result.errorCode).toBe("permission_denied");
+		});
+
+		test("returns false for non-model-access errors", () => {
+			const error = new Error("Network timeout") as Error & { status: number };
+			error.status = 500;
+			const result = detectModelAccessError(error);
+			expect(result.isModelAccessError).toBe(false);
+		});
+
+		test("handles string error", () => {
+			const result = detectModelAccessError("string error");
+			expect(result.isModelAccessError).toBe(false);
+			expect(result.message).toBe("string error");
+		});
+
+		test("recognizes all known error codes", () => {
+			const errorCodes = [
+				"authentication_error",
+				"invalid_api_key",
+				"unauthorized",
+				"rate_limit_error",
+				"rate_limit_exceeded",
+				"model_not_found",
+				"invalid_model",
+				"model_unavailable",
+				"permission_denied",
+				"access_denied",
+				"quota_exceeded",
+				"insufficient_quota",
+			];
+
+			for (const code of errorCodes) {
+				const error = new Error("test") as Error & { code: string };
+				error.code = code;
+				const result = detectModelAccessError(error);
+				expect(result.isModelAccessError).toBe(true);
+			}
+		});
+	});
+
+	describe("formatModelAccessErrorMessage", () => {
+		test("formats 401 authentication error", () => {
+			const msg = formatModelAccessErrorMessage(
+				401,
+				undefined,
+				"Invalid API key",
+			);
+			expect(msg).toContain("Invalid API key");
+			expect(msg).toContain("ANTHROPIC_API_KEY");
+			expect(msg).toContain("OPENROUTER_API_KEY");
+		});
+
+		test("formats authentication_error code", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				"authentication_error",
+				"Auth failed",
+			);
+			expect(msg).toContain("Invalid API key");
+		});
+
+		test("formats invalid_api_key code", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				"invalid_api_key",
+				"Key invalid",
+			);
+			expect(msg).toContain("Invalid API key");
+		});
+
+		test("formats 403 permission error", () => {
+			const msg = formatModelAccessErrorMessage(403, undefined, "Forbidden");
+			expect(msg).toContain("Permission denied");
+		});
+
+		test("formats permission_denied code", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				"permission_denied",
+				"No access",
+			);
+			expect(msg).toContain("Permission denied");
+		});
+
+		test("formats 404 model not found error", () => {
+			const msg = formatModelAccessErrorMessage(
+				404,
+				undefined,
+				"Model not found",
+			);
+			expect(msg).toContain("Model not found");
+			expect(msg).toContain("model name");
+		});
+
+		test("formats model_not_found code", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				"model_not_found",
+				"Unknown model",
+			);
+			expect(msg).toContain("Model not found");
+		});
+
+		test("formats 429 rate limit error", () => {
+			const msg = formatModelAccessErrorMessage(
+				429,
+				undefined,
+				"Too many requests",
+			);
+			expect(msg).toContain("Rate limit exceeded");
+			expect(msg).toContain("wait");
+		});
+
+		test("formats rate_limit_error code", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				"rate_limit_error",
+				"Rate limited",
+			);
+			expect(msg).toContain("Rate limit exceeded");
+		});
+
+		test("formats 402 quota exceeded error", () => {
+			const msg = formatModelAccessErrorMessage(
+				402,
+				undefined,
+				"Payment required",
+			);
+			expect(msg).toContain("quota exceeded");
+			expect(msg).toContain("billing");
+		});
+
+		test("formats quota_exceeded code", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				"quota_exceeded",
+				"Out of quota",
+			);
+			expect(msg).toContain("quota exceeded");
+		});
+
+		test("formats generic error with original message", () => {
+			const msg = formatModelAccessErrorMessage(
+				undefined,
+				undefined,
+				"Something went wrong",
+			);
+			expect(msg).toContain("Model access failed");
+			expect(msg).toContain("Something went wrong");
+		});
+
+		test("formats generic error without message", () => {
+			const msg = formatModelAccessErrorMessage(undefined, undefined);
+			expect(msg).toContain("Model access failed");
+			expect(msg).toContain("Unknown error");
 		});
 	});
 });

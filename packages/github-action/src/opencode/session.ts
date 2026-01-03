@@ -26,6 +26,261 @@ export class SessionError extends Error {
 }
 
 /**
+ * Error thrown when model access fails (authentication, rate limiting, model unavailable, etc.).
+ * These errors should cause the action to fail with a clear message.
+ */
+export class ModelAccessError extends Error {
+	public readonly originalCause?: unknown;
+	public readonly statusCode?: number;
+	public readonly errorCode?: string;
+
+	constructor(
+		message: string,
+		options?: { cause?: unknown; statusCode?: number; errorCode?: string },
+	) {
+		super(message);
+		this.name = "ModelAccessError";
+		this.originalCause = options?.cause;
+		this.statusCode = options?.statusCode;
+		this.errorCode = options?.errorCode;
+	}
+
+	/**
+	 * Check if this error indicates an authentication failure.
+	 */
+	isAuthenticationError(): boolean {
+		return (
+			this.statusCode === 401 ||
+			this.errorCode === "authentication_error" ||
+			this.errorCode === "invalid_api_key"
+		);
+	}
+
+	/**
+	 * Check if this error indicates rate limiting.
+	 */
+	isRateLimitError(): boolean {
+		return this.statusCode === 429 || this.errorCode === "rate_limit_error";
+	}
+
+	/**
+	 * Check if this error indicates the model is unavailable.
+	 */
+	isModelUnavailableError(): boolean {
+		return (
+			this.statusCode === 404 ||
+			this.errorCode === "model_not_found" ||
+			this.errorCode === "invalid_model"
+		);
+	}
+}
+
+/**
+ * Known error codes from LLM providers that indicate model access issues.
+ */
+const MODEL_ACCESS_ERROR_CODES = new Set([
+	// Authentication errors
+	"authentication_error",
+	"invalid_api_key",
+	"unauthorized",
+	// Rate limiting
+	"rate_limit_error",
+	"rate_limit_exceeded",
+	// Model availability
+	"model_not_found",
+	"invalid_model",
+	"model_unavailable",
+	// Permission errors
+	"permission_denied",
+	"access_denied",
+	// Quota errors
+	"quota_exceeded",
+	"insufficient_quota",
+]);
+
+/**
+ * HTTP status codes that indicate model access issues.
+ */
+const MODEL_ACCESS_STATUS_CODES = new Set([
+	401, // Unauthorized - invalid API key
+	403, // Forbidden - permission denied
+	404, // Not Found - model doesn't exist
+	429, // Too Many Requests - rate limited
+	402, // Payment Required - quota exceeded
+]);
+
+/**
+ * Detect if an error is a model access error and extract details.
+ *
+ * @param error - The error to analyze
+ * @returns Object with isModelAccessError flag and extracted details
+ */
+export function detectModelAccessError(error: unknown): {
+	isModelAccessError: boolean;
+	statusCode?: number;
+	errorCode?: string;
+	message: string;
+} {
+	if (!error) {
+		return { isModelAccessError: false, message: "Unknown error" };
+	}
+
+	// Handle standard Error objects
+	if (error instanceof Error) {
+		const errorAny = error as unknown as Record<string, unknown>;
+
+		// Try to extract status code from various error shapes
+		const statusCode =
+			typeof errorAny.status === "number"
+				? errorAny.status
+				: typeof errorAny.statusCode === "number"
+					? errorAny.statusCode
+					: typeof (errorAny.response as Record<string, unknown>)?.status ===
+							"number"
+						? ((errorAny.response as Record<string, unknown>).status as number)
+						: undefined;
+
+		// Try to extract error code from various error shapes
+		const errorCode =
+			typeof errorAny.code === "string"
+				? errorAny.code
+				: typeof errorAny.error_code === "string"
+					? errorAny.error_code
+					: typeof (errorAny.error as Record<string, unknown>)?.type ===
+							"string"
+						? ((errorAny.error as Record<string, unknown>).type as string)
+						: undefined;
+
+		// Check if it's a model access error
+		const isModelAccessError =
+			(statusCode !== undefined && MODEL_ACCESS_STATUS_CODES.has(statusCode)) ||
+			(errorCode !== undefined && MODEL_ACCESS_ERROR_CODES.has(errorCode));
+
+		return {
+			isModelAccessError,
+			statusCode,
+			errorCode,
+			message: error.message,
+		};
+	}
+
+	// Handle plain objects (e.g., from API responses)
+	if (typeof error === "object") {
+		const errorObj = error as Record<string, unknown>;
+		const statusCode =
+			typeof errorObj.status === "number"
+				? errorObj.status
+				: typeof errorObj.statusCode === "number"
+					? errorObj.statusCode
+					: undefined;
+		const errorCode =
+			typeof errorObj.code === "string"
+				? errorObj.code
+				: typeof errorObj.error_code === "string"
+					? errorObj.error_code
+					: undefined;
+		const message =
+			typeof errorObj.message === "string"
+				? errorObj.message
+				: JSON.stringify(error);
+
+		const isModelAccessError =
+			(statusCode !== undefined && MODEL_ACCESS_STATUS_CODES.has(statusCode)) ||
+			(errorCode !== undefined && MODEL_ACCESS_ERROR_CODES.has(errorCode));
+
+		return {
+			isModelAccessError,
+			statusCode,
+			errorCode,
+			message,
+		};
+	}
+
+	return {
+		isModelAccessError: false,
+		message: String(error),
+	};
+}
+
+/**
+ * Create a user-friendly error message for model access errors.
+ *
+ * @param statusCode - HTTP status code (if available)
+ * @param errorCode - Provider error code (if available)
+ * @param originalMessage - Original error message
+ * @returns User-friendly error message with guidance
+ */
+export function formatModelAccessErrorMessage(
+	statusCode?: number,
+	errorCode?: string,
+	originalMessage?: string,
+): string {
+	// Authentication errors
+	if (
+		statusCode === 401 ||
+		errorCode === "authentication_error" ||
+		errorCode === "invalid_api_key"
+	) {
+		return (
+			"Model access failed: Invalid API key. " +
+			"Please verify that your ANTHROPIC_API_KEY or OPENROUTER_API_KEY secret is correct and not expired. " +
+			`(${originalMessage || "authentication_error"})`
+		);
+	}
+
+	// Permission errors
+	if (statusCode === 403 || errorCode === "permission_denied") {
+		return (
+			"Model access failed: Permission denied. " +
+			"Your API key may not have access to this model. " +
+			`(${originalMessage || "permission_denied"})`
+		);
+	}
+
+	// Model not found
+	if (
+		statusCode === 404 ||
+		errorCode === "model_not_found" ||
+		errorCode === "invalid_model"
+	) {
+		return (
+			"Model access failed: Model not found. " +
+			"Please verify the model name in your workflow configuration. " +
+			`(${originalMessage || "model_not_found"})`
+		);
+	}
+
+	// Rate limiting
+	if (statusCode === 429 || errorCode === "rate_limit_error") {
+		return (
+			"Model access failed: Rate limit exceeded. " +
+			"Please wait and try again, or contact your API provider to increase limits. " +
+			`(${originalMessage || "rate_limit_error"})`
+		);
+	}
+
+	// Quota exceeded
+	if (
+		statusCode === 402 ||
+		errorCode === "quota_exceeded" ||
+		errorCode === "insufficient_quota"
+	) {
+		return (
+			"Model access failed: API quota exceeded. " +
+			"Please check your API account's usage limits and billing status. " +
+			`(${originalMessage || "quota_exceeded"})`
+		);
+	}
+
+	// Generic model access error
+	return (
+		"Model access failed: " +
+		(originalMessage || "Unknown error") +
+		". Please verify your API configuration and model settings."
+	);
+}
+
+/**
  * Model configuration for session prompts.
  */
 export interface ModelConfig {
@@ -206,6 +461,23 @@ export class IntentAnalysisSession {
 				parseError: parseResult.error,
 			};
 		} catch (error) {
+			// Check if this is a model access error
+			const modelAccessCheck = detectModelAccessError(error);
+			if (modelAccessCheck.isModelAccessError) {
+				throw new ModelAccessError(
+					formatModelAccessErrorMessage(
+						modelAccessCheck.statusCode,
+						modelAccessCheck.errorCode,
+						modelAccessCheck.message,
+					),
+					{
+						cause: error,
+						statusCode: modelAccessCheck.statusCode,
+						errorCode: modelAccessCheck.errorCode,
+					},
+				);
+			}
+
 			throw new SessionError(
 				`Failed to send prompt to session ${this.sessionId}`,
 				error,

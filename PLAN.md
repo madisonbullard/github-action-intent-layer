@@ -220,8 +220,8 @@ prompts:
 - [x] 7.7 Implement prompt for proposing new nodes (skip if `new_nodes: false`)
 - [x] 7.8 Implement prompt for suggesting node splits
 - [x] 7.9 Apply pattern-matched custom prompts
-- [ ] 7.10 Parse and schema-validate structured JSON output from stdout
-- [ ] 7.11 Handle model access errors (fail action with clear message)
+- [x] 7.10 Parse and schema-validate structured JSON output from stdout
+- [x] 7.11 Handle model access errors (fail action with clear message)
 
 ### Phase 8: PR Comment Management
 - [ ] 8.1 Generate diff format (before/after) for each node update
