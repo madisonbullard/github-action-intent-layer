@@ -273,7 +273,7 @@ prompts:
 - [x] 13.5 Integration test: checkbox toggle → commit
 - [x] 13.6 Integration test: checkbox untoggle → revert
 - [x] 13.7 Integration test: symlink handling (both directions)
-- [ ] 13.8 Integration test: token budget enforcement (binary/large file skipping)
+- [x] 13.8 Integration test: token budget enforcement (binary/large file skipping)
 - [ ] 13.9 Integration test: `output: new_pr` mode
 
 ### Phase 14: CI/CD & Release
