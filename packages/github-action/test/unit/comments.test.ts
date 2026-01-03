@@ -3,10 +3,12 @@ import type { GitHubClient } from "../../src/github/client";
 import {
 	type CommentMarkerData,
 	clearCommentMarkerAppliedCommit,
+	detectCheckboxState,
 	findCommentForNode,
 	findIntentLayerComments,
 	generateComment,
 	generateCommentMarker,
+	hasCheckbox,
 	hasIntentLayerMarker,
 	INTENT_LAYER_MARKER_PREFIX,
 	INTENT_LAYER_MARKER_SUFFIX,
@@ -18,6 +20,7 @@ import {
 	postCommentsForUpdates,
 	type ResolvedCommentResult,
 	resolveAndPostComments,
+	shouldSkipCheckboxProcessing,
 	updateCheckboxState,
 	updateCommentMarkerWithCommit,
 } from "../../src/github/comments";
@@ -264,6 +267,69 @@ describe("clearCommentMarkerAppliedCommit", () => {
 	});
 });
 
+describe("detectCheckboxState", () => {
+	test("detects checked checkbox", () => {
+		const body = "Some content\n\n- [x] Apply this change";
+		const result = detectCheckboxState(body);
+		expect(result.hasCheckbox).toBe(true);
+		expect(result.isChecked).toBe(true);
+	});
+
+	test("detects unchecked checkbox", () => {
+		const body = "Some content\n\n- [ ] Apply this change";
+		const result = detectCheckboxState(body);
+		expect(result.hasCheckbox).toBe(true);
+		expect(result.isChecked).toBe(false);
+	});
+
+	test("detects no checkbox", () => {
+		const body = "Some content without checkbox";
+		const result = detectCheckboxState(body);
+		expect(result.hasCheckbox).toBe(false);
+		expect(result.isChecked).toBe(false);
+	});
+
+	test("handles empty body", () => {
+		const result = detectCheckboxState("");
+		expect(result.hasCheckbox).toBe(false);
+		expect(result.isChecked).toBe(false);
+	});
+
+	test("handles body with only marker and no checkbox", () => {
+		const body = `${INTENT_LAYER_MARKER_PREFIX} node=AGENTS.md headSha=abc ${INTENT_LAYER_MARKER_SUFFIX}\n\nSome diff content`;
+		const result = detectCheckboxState(body);
+		expect(result.hasCheckbox).toBe(false);
+		expect(result.isChecked).toBe(false);
+	});
+
+	test("does not match similar but incorrect checkbox formats", () => {
+		// Different checkbox text
+		const body1 = "- [x] Some other checkbox";
+		expect(detectCheckboxState(body1).hasCheckbox).toBe(false);
+
+		// Different format
+		const body2 = "[x] Apply this change";
+		expect(detectCheckboxState(body2).hasCheckbox).toBe(false);
+	});
+});
+
+describe("hasCheckbox", () => {
+	test("returns true for checked checkbox", () => {
+		const body = "Content\n\n- [x] Apply this change";
+		expect(hasCheckbox(body)).toBe(true);
+	});
+
+	test("returns true for unchecked checkbox", () => {
+		const body = "Content\n\n- [ ] Apply this change";
+		expect(hasCheckbox(body)).toBe(true);
+	});
+
+	test("returns false for no checkbox", () => {
+		const body = "Content without checkbox";
+		expect(hasCheckbox(body)).toBe(false);
+	});
+});
+
 describe("isCheckboxChecked", () => {
 	test("returns true for checked checkbox", () => {
 		const body = "Some content\n\n- [x] Apply this change";
@@ -278,6 +344,29 @@ describe("isCheckboxChecked", () => {
 	test("returns false for no checkbox", () => {
 		const body = "Some content without checkbox";
 		expect(isCheckboxChecked(body)).toBe(false);
+	});
+});
+
+describe("shouldSkipCheckboxProcessing", () => {
+	test("returns true when unchecked and no appliedCommit", () => {
+		expect(shouldSkipCheckboxProcessing(false, undefined)).toBe(true);
+	});
+
+	test("returns true when unchecked and appliedCommit is empty string", () => {
+		// Empty string is falsy, should be treated as no commit
+		expect(shouldSkipCheckboxProcessing(false, "")).toBe(true);
+	});
+
+	test("returns false when unchecked but has appliedCommit (needs revert)", () => {
+		expect(shouldSkipCheckboxProcessing(false, "abc123")).toBe(false);
+	});
+
+	test("returns false when checked and no appliedCommit (needs apply)", () => {
+		expect(shouldSkipCheckboxProcessing(true, undefined)).toBe(false);
+	});
+
+	test("returns false when checked and has appliedCommit (already applied, but may need re-check)", () => {
+		expect(shouldSkipCheckboxProcessing(true, "abc123")).toBe(false);
 	});
 });
 

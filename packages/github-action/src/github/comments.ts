@@ -231,6 +231,48 @@ export function clearCommentMarkerAppliedCommit(commentBody: string): string {
 }
 
 /**
+ * Result of detecting checkbox state in a comment.
+ */
+export interface CheckboxState {
+	/** Whether a checkbox exists in the comment */
+	hasCheckbox: boolean;
+	/** Whether the checkbox is checked (false if no checkbox exists) */
+	isChecked: boolean;
+}
+
+/**
+ * Detect the checkbox state in a comment body.
+ *
+ * This function detects:
+ * 1. Whether a checkbox exists in the comment
+ * 2. Whether the checkbox is checked or unchecked
+ *
+ * It handles both checked `- [x]` and unchecked `- [ ]` checkbox formats.
+ *
+ * @param commentBody - The comment body to check
+ * @returns CheckboxState indicating presence and state of checkbox
+ */
+export function detectCheckboxState(commentBody: string): CheckboxState {
+	const hasCheckedBox = commentBody.includes("- [x] Apply this change");
+	const hasUncheckedBox = commentBody.includes("- [ ] Apply this change");
+
+	return {
+		hasCheckbox: hasCheckedBox || hasUncheckedBox,
+		isChecked: hasCheckedBox,
+	};
+}
+
+/**
+ * Check if a comment has the approval checkbox.
+ *
+ * @param commentBody - The comment body to check
+ * @returns True if the comment contains the approval checkbox (checked or unchecked)
+ */
+export function hasCheckbox(commentBody: string): boolean {
+	return detectCheckboxState(commentBody).hasCheckbox;
+}
+
+/**
  * Check if the checkbox in a comment is checked.
  *
  * @param commentBody - The comment body to check
@@ -238,6 +280,26 @@ export function clearCommentMarkerAppliedCommit(commentBody: string): string {
  */
 export function isCheckboxChecked(commentBody: string): boolean {
 	return commentBody.includes("- [x] Apply this change");
+}
+
+/**
+ * Determine if checkbox processing should be skipped.
+ *
+ * According to the intent layer design, if a checkbox is unchecked
+ * and no appliedCommit exists (meaning no change was ever applied),
+ * there's nothing to do - we should skip processing.
+ *
+ * @param isChecked - Whether the checkbox is currently checked
+ * @param appliedCommit - The appliedCommit from the comment marker (undefined if not applied)
+ * @returns True if processing should be skipped, false if processing should continue
+ */
+export function shouldSkipCheckboxProcessing(
+	isChecked: boolean,
+	appliedCommit: string | undefined,
+): boolean {
+	// Skip if unchecked and no prior commit was applied
+	// (Nothing to apply, nothing to revert)
+	return !isChecked && !appliedCommit;
 }
 
 /**

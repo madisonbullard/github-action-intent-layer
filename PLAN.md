@@ -241,8 +241,8 @@ prompts:
 
 ### Phase 10: Checkbox Toggle Handler (`mode: checkbox-handler`)
 - [x] 10.1 Implement 1.5s debounce (wait, re-fetch comment, verify state unchanged)
-- [ ] 10.2 Detect checkbox state in comment body (single checkbox per comment)
-- [ ] 10.2a If unchecked and no `appliedCommit`, do nothing
+- [x] 10.2 Detect checkbox state in comment body (single checkbox per comment)
+- [x] 10.2a If unchecked and no `appliedCommit`, do nothing
 - [ ] 10.3 Parse node path + `appliedCommit` + `headSha` from hidden marker
 - [ ] 10.4 If checked: ensure current PR `headSha` matches marker `headSha`, then create intent commit (`[INTENT:ADD]` or `[INTENT:UPDATE]`) and update marker `appliedCommit`
 - [ ] 10.5 If unchecked: if no `appliedCommit`, do nothing; otherwise perform file-level revert (restore file to pre-commit state)
