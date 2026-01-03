@@ -22,16 +22,34 @@
 - `detector.test.ts` (1,053 lines) - Comprehensive symlink detection coverage
 - `tokenizer.test.ts` (1,272 lines) - Comprehensive token budget coverage
 
+### Current CI Configuration
+
+The existing `ci.yml` has:
+- `lint` job (Biome check)
+- `typecheck` job (TypeScript)
+- `test` job (runs all tests via `bun test`)
+- `build` job (depends on typecheck + test)
+- Concurrency control (cancels in-progress runs on same ref)
+
+**What needs to change:**
+- Split `test` job into `test-unit` and `test-integration` (mocked)
+- Add `workflow_dispatch` inputs for optional real API tests
+- Add conditional jobs for real GitHub/LLM tests
+- Add cleanup job for stale test branches
+
 ---
 
 ## Phase 1: Clean Up Redundant Tests
 
 ### Tasks
-1. Delete `test/integration/no-intent-layer.test.ts`
-2. Delete `test/integration/propose-new-node.test.ts`
-3. Delete `test/integration/update-existing-node.test.ts`
-4. Run full test suite to verify nothing breaks
-5. Audit remaining tests for any dead code or unused fixtures
+- [ ] Delete `test/integration/no-intent-layer.test.ts`
+- [ ] Delete `test/integration/propose-new-node.test.ts`
+- [ ] Delete `test/integration/update-existing-node.test.ts`
+- [ ] Run full test suite to verify nothing breaks
+- [ ] Check if `test/fixtures/no-intent-layer/` is still used by remaining tests
+  - If unused, delete the fixture directory
+  - If used, keep it
+- [ ] Audit remaining tests for any dead code or unused fixtures
 
 ### Expected Outcome
 - Remove ~1,370 lines of redundant test code
@@ -40,54 +58,64 @@
 
 ---
 
-## Phase 2: Real GitHub Integration Tests
+## Phase 2: Test Directory Reorganization
 
-### Strategy
-Use branches in THIS repo (not a separate test repo) for real GitHub API testing.
+> **Note:** Execute this phase BEFORE Phases 3 and 4 to establish the directory structure.
 
-### Design
+### Proposed Structure
 ```
-Branch naming: test-fixture/<run-id>
-Lifecycle:
-  1. Create branch from known base commit
-  2. Create PR against branch
-  3. Execute real GitHub API operations
-  4. Verify comments, commits, PR state
-  5. Delete branch (cleanup)
-```
-
-### Test Scenarios
-1. **PR Comment Flow**: Create PR → run action → verify comment posted with correct format
-2. **Checkbox Commit Flow**: Toggle checkbox → verify intent commit created
-3. **Checkbox Revert Flow**: Untoggle checkbox → verify file reverted
-4. **Rate Limit Handling**: Verify exponential backoff works
-
-### Implementation
-```typescript
-// test/integration/real-github/setup.ts
-export async function createTestBranch(runId: string): Promise<string> {
-  const branchName = `test-fixture/${runId}`;
-  // Use GITHUB_TOKEN from CI environment
-  // Create branch from HEAD of main
-  return branchName;
-}
-
-export async function cleanupTestBranch(branchName: string): Promise<void> {
-  // Delete branch via GitHub API
-}
+test/
+├── fixtures/                    # Keep as-is
+│   ├── basic-agents/
+│   ├── nested-hierarchy/
+│   ├── no-intent-layer/        # Keep if still used after Phase 1
+│   ├── symlink-agents-source/
+│   └── symlink-claude-source/
+├── mocks/                       # NEW: Centralized mocks
+│   ├── github.ts               # GitHub API mocks
+│   └── opencode.ts             # OpenCode response mocks
+├── unit/                        # Keep as-is (all passing)
+│   ├── analyzer.test.ts
+│   ├── checkbox-handler.test.ts
+│   └── ...
+├── integration/                 # Reorganized (only 5 files after Phase 1)
+│   ├── checkbox-toggle-commit.test.ts
+│   ├── checkbox-untoggle-revert.test.ts
+│   ├── new-pr-output-mode.test.ts
+│   ├── symlink-handling.test.ts
+│   └── token-budget-enforcement.test.ts
+├── integration-real-github/     # NEW: Real GitHub API tests
+│   ├── setup.ts                # Branch creation/cleanup helpers
+│   ├── pr-comment-flow.test.ts
+│   └── checkbox-commit.test.ts
+└── integration-llm/             # NEW: Real LLM tests
+    ├── setup.ts
+    └── analyze-changes.test.ts
 ```
 
-### CI Configuration
-- Tests run on PRs (with mocked GitHub by default)
-- Real GitHub tests only run via `workflow_dispatch` with checkbox
+### Tasks
+- [ ] Create `test/mocks/` directory
+- [ ] Create `test/mocks/github.ts` (stub file with TODO)
+- [ ] Create `test/mocks/opencode.ts` (stub file with TODO)
+- [ ] Create `test/integration-real-github/` directory
+- [ ] Create `test/integration-real-github/setup.ts` (stub file with TODO)
+- [ ] Create `test/integration-llm/` directory
+- [ ] Create `test/integration-llm/setup.ts` (stub file with TODO)
 
 ---
 
 ## Phase 3: OpenCode Mocking Strategy
 
 ### Default Behavior (Fast Tests)
-Mock OpenCode responses that conform to the output schema:
+Mock OpenCode responses that conform to the output schema. TypeScript typing is sufficient for validation.
 
+### Tasks
+- [ ] Implement `test/mocks/opencode.ts` with `mockOpenCodeResponse` function
+- [ ] Implement mock scenarios: `update`, `create`, `delete`, `no-changes`
+- [ ] Update existing integration tests to use centralized mocks (if not already)
+- [ ] Implement `test/mocks/github.ts` with common GitHub API mocks
+
+### Example Implementation
 ```typescript
 // test/mocks/opencode.ts
 import type { IntentLayerOutput } from '../../src/opencode/output-schema';
@@ -109,198 +137,137 @@ export function mockOpenCodeResponse(scenario: 'update' | 'create' | 'delete' | 
 }
 ```
 
-### Real LLM Tests (Optional)
-Enable via environment variable or workflow_dispatch:
+---
 
-```yaml
-# In CI workflow
-- name: Run LLM integration tests
-  if: github.event.inputs.run_llm_tests == 'true'
-  run: bun test test/integration/llm/
-  env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    RUN_REAL_LLM_TESTS: 'true'
+## Phase 4: Real GitHub Integration Tests
+
+### Strategy
+Use branches in THIS repo for real GitHub API testing.
+
+### Branch Naming
 ```
+test-fixture/<run-id>-<timestamp>
+```
+Example: `test-fixture/12345678-1704067200`
+
+This ensures uniqueness even if concurrent CI runs occur.
+
+### Test Scenarios
+- [ ] **PR Comment Flow**: Create PR → run action → verify comment posted with correct format
+- [ ] **Checkbox Commit Flow**: Toggle checkbox → verify intent commit created
+- [ ] **Checkbox Revert Flow**: Untoggle checkbox → verify file reverted
+- [ ] **Rate Limit Handling**: Verify exponential backoff works
+
+### Implementation Tasks
+- [ ] Implement `test/integration-real-github/setup.ts`:
+  ```typescript
+  export async function createTestBranch(runId: string): Promise<string> {
+    const timestamp = Date.now();
+    const branchName = `test-fixture/${runId}-${timestamp}`;
+    // Use GITHUB_TOKEN from CI environment
+    // Create branch from HEAD of main
+    return branchName;
+  }
+
+  export async function cleanupTestBranch(branchName: string): Promise<void> {
+    // Delete branch via GitHub API
+  }
+  ```
+- [ ] Implement PR comment flow test
+- [ ] Implement checkbox commit flow test
+- [ ] Wrap test execution in try/finally to ensure cleanup on failure
+
+### Permissions Note
+We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/PR creation, we'll need to switch to a PAT with elevated permissions.
 
 ---
 
-## Phase 4: CI Configuration Updates
+## Phase 5: CI Configuration Updates
 
-### Updated `ci.yml`
-```yaml
-name: CI
+### Changes to `ci.yml`
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      run_llm_tests:
-        description: 'Run real LLM integration tests'
-        required: false
-        default: false
-        type: boolean
-      run_github_tests:
-        description: 'Run real GitHub API integration tests'
-        required: false
-        default: false
-        type: boolean
+**Keep (unchanged):**
+- `lint` job
+- `typecheck` job
+- `build` job structure
+- Concurrency control
 
-jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Run Biome check
-        run: bun biome check --diagnostic-level=error
+**Modify:**
+- Split `test` job into `test-unit` and `test-integration`
+- Update `build` job dependencies to `[lint, typecheck, test-unit, test-integration]`
 
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Run TypeScript typecheck
-        run: bun run typecheck
+**Add:**
+- `workflow_dispatch` trigger with inputs for optional real API tests
+- `test-github-real` job (conditional on `workflow_dispatch` input)
+- `test-llm-real` job (conditional on `workflow_dispatch` input)
+- `cleanup-test-branches` job (scheduled daily OR on test failure)
 
-  test-unit:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Run unit tests
-        run: bun test test/unit/
-
-  test-integration:
-    name: Integration Tests (Mocked)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Run integration tests
-        run: bun test test/integration/
-
+### Tasks
+- [ ] Add `workflow_dispatch` trigger with boolean inputs:
+  - `run_llm_tests` (default: false)
+  - `run_github_tests` (default: false)
+- [ ] Rename `test` job to `test-unit`, change command to `bun test test/unit/`
+- [ ] Add `test-integration` job running `bun test test/integration/`
+- [ ] Add conditional `test-github-real` job:
+  ```yaml
   test-github-real:
     name: Real GitHub API Tests
-    if: github.event.inputs.run_github_tests == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_github_tests == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # ... setup steps ...
       - name: Run real GitHub tests
         run: bun test test/integration-real-github/
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+  ```
+- [ ] Add conditional `test-llm-real` job:
+  ```yaml
   test-llm-real:
     name: Real LLM Tests
-    if: github.event.inputs.run_llm_tests == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_llm_tests == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # ... setup steps ...
       - name: Run real LLM tests
         run: bun test test/integration-llm/
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-
-  build:
-    name: Build
+  ```
+- [ ] Add cleanup job for test branches:
+  ```yaml
+  cleanup-test-branches:
+    name: Cleanup Test Branches
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, test-integration]
+    needs: [test-github-real]
+    # Always run after real GitHub tests (success or failure)
+    if: always() && needs.test-github-real.result != 'skipped'
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Build action
-        run: bun run build
-      - name: Verify dist output
+      - name: Delete test-fixture branches
         run: |
-          if [ ! -f dist/index.js ]; then
-            echo "Build failed: dist/index.js not found"
-            exit 1
-          fi
-          echo "Build successful: dist/index.js exists"
-```
-
----
-
-## Phase 5: Test Directory Reorganization
-
-### Proposed Structure
-```
-test/
-├── fixtures/                    # Keep as-is
-│   ├── basic-agents/
-│   ├── nested-hierarchy/
-│   ├── no-intent-layer/
-│   ├── symlink-agents-source/
-│   └── symlink-claude-source/
-├── mocks/                       # NEW: Centralized mocks
-│   ├── github.ts               # GitHub API mocks
-│   └── opencode.ts             # OpenCode response mocks
-├── unit/                        # Keep as-is (all passing)
-│   ├── analyzer.test.ts
-│   ├── checkbox-handler.test.ts
-│   └── ...
-├── integration/                 # Reorganized (only keep 5 files)
-│   ├── checkbox-toggle-commit.test.ts     # KEEP
-│   ├── checkbox-untoggle-revert.test.ts   # KEEP
-│   ├── new-pr-output-mode.test.ts         # KEEP
-│   ├── symlink-handling.test.ts           # KEEP
-│   └── token-budget-enforcement.test.ts   # KEEP
-├── integration-real-github/     # NEW: Real GitHub API tests
-│   ├── pr-comment-flow.test.ts
-│   ├── checkbox-commit.test.ts
-│   └── setup.ts
-└── integration-llm/             # NEW: Real LLM tests
-    ├── analyze-changes.test.ts
-    └── setup.ts
-```
+          gh api repos/${{ github.repository }}/branches --paginate -q '.[].name' | \
+            grep '^test-fixture/' | \
+            while read branch; do
+              echo "Deleting branch: $branch"
+              gh api repos/${{ github.repository }}/git/refs/heads/$branch --method DELETE || true
+            done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  ```
+- [ ] Update `build` job `needs` to: `[lint, typecheck, test-unit, test-integration]`
 
 ---
 
 ## Execution Timeline
 
-| Phase | Description | Estimated Time |
-|-------|-------------|----------------|
-| 1 | Clean up redundant tests | 30 min |
-| 2 | Real GitHub integration tests | 2-3 hours |
-| 3 | OpenCode mocking strategy | 1-2 hours |
-| 4 | CI configuration updates | 30 min |
-| 5 | Test directory reorganization | 30 min |
+| Phase | Description | Estimated Time | Dependencies |
+|-------|-------------|----------------|--------------|
+| 1 | Clean up redundant tests | 30 min | None |
+| 2 | Test directory reorganization | 30 min | Phase 1 |
+| 3 | OpenCode mocking strategy | 1-2 hours | Phase 2 |
+| 4 | Real GitHub integration tests | 2-3 hours | Phase 2 |
+| 5 | CI configuration updates | 30 min | Phases 3, 4 |
 
 **Total: ~5-6 hours**
 
@@ -308,13 +275,13 @@ test/
 
 ## Success Criteria
 
-1. **Fast CI**: Unit + mocked integration tests complete in < 3 minutes
-2. **No redundancy**: Each test covers a unique scenario
-3. **Real API coverage**: Optional tests verify actual GitHub API behavior
-4. **Clear organization**: Test structure mirrors source structure
-5. **Documentation**: Each test file has clear docstring explaining what it tests
-6. **Maintainability**: New tests are easier to write and understand
-7. **Coverage**: No regression in test coverage from Phase 1 cleanup
+- [ ] **Fast CI**: Unit + mocked integration tests complete in < 3 minutes
+- [ ] **No redundancy**: Each test covers a unique scenario
+- [ ] **Real API coverage**: Optional tests verify actual GitHub API behavior
+- [ ] **Clear organization**: Test structure mirrors source structure
+- [ ] **Documentation**: Each test file has clear docstring explaining what it tests
+- [ ] **Maintainability**: New tests are easier to write and understand
+- [ ] **Coverage**: No regression in test coverage from Phase 1 cleanup
 
 ---
 
@@ -351,7 +318,7 @@ These tests exercise **end-to-end workflows** that cannot be adequately tested a
 
 ## Next Steps After Implementation
 
-1. **Monitor CI performance** - Ensure mocked tests run in < 3 minutes
-2. **Document real test procedures** - Add README explaining how to run real GitHub/LLM tests
-3. **Consider additional coverage** - After Phase 1, evaluate if additional real API tests needed
-4. **Future: Parallelization** - Consider splitting unit tests for faster CI
+- [ ] **Monitor CI performance** - Ensure mocked tests run in < 3 minutes
+- [ ] **Document real test procedures** - Add README explaining how to run real GitHub/LLM tests
+- [ ] **Consider additional coverage** - After Phase 1, evaluate if additional real API tests needed
+- [ ] **Future: Parallelization** - Consider splitting unit tests for faster CI
