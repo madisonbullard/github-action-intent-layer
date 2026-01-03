@@ -1118,3 +1118,273 @@ describe("createIntentRevertCommit", () => {
 		expect(capturedMessage).toContain("Reverted via checkbox");
 	});
 });
+
+describe("createIntentAddCommit with symlink", () => {
+	test("creates source file and symlink when symlink option is enabled", async () => {
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const filesCreated: Array<{
+			path: string;
+			content: string;
+			isSymlink: boolean;
+		}> = [];
+		const mockCreateFilesWithSymlinks = mock(
+			async (
+				files: Array<{ path: string; content: string; isSymlink: boolean }>,
+			) => {
+				for (const f of files) {
+					filesCreated.push(f);
+				}
+				return {
+					sha: "symlinkcommitsha",
+					url: "https://github.com/commit/symlinkcommitsha",
+				};
+			},
+		);
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createFilesWithSymlinks: mockCreateFilesWithSymlinks,
+			createOrUpdateFile: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			action: "create",
+			reason: "New API package",
+			suggestedContent: "# API\n\nContent here.\n",
+		};
+
+		const result = await createIntentAddCommit(client, update, {
+			branch: "main",
+			symlink: true,
+			symlinkSource: "agents",
+		});
+
+		expect(result.sha).toBe("symlinkcommitsha");
+		expect(mockCreateFilesWithSymlinks).toHaveBeenCalled();
+
+		// Should have created 2 files
+		expect(filesCreated.length).toBe(2);
+
+		// AGENTS.md should be the source (not a symlink)
+		const agentsFile = filesCreated.find((f) => f.path.endsWith("AGENTS.md"));
+		expect(agentsFile).toBeDefined();
+		expect(agentsFile?.isSymlink).toBe(false);
+		expect(agentsFile?.content).toBe("# API\n\nContent here.\n");
+
+		// CLAUDE.md should be a symlink pointing to AGENTS.md
+		const claudeFile = filesCreated.find((f) => f.path.endsWith("CLAUDE.md"));
+		expect(claudeFile).toBeDefined();
+		expect(claudeFile?.isSymlink).toBe(true);
+		expect(claudeFile?.content).toBe("AGENTS.md");
+	});
+
+	test("creates symlink with claude as source when symlinkSource is claude", async () => {
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const filesCreated: Array<{
+			path: string;
+			content: string;
+			isSymlink: boolean;
+		}> = [];
+		const mockCreateFilesWithSymlinks = mock(
+			async (
+				files: Array<{ path: string; content: string; isSymlink: boolean }>,
+			) => {
+				for (const f of files) {
+					filesCreated.push(f);
+				}
+				return {
+					sha: "symlinkcommitsha",
+					url: "https://github.com/commit/symlinkcommitsha",
+				};
+			},
+		);
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createFilesWithSymlinks: mockCreateFilesWithSymlinks,
+			createOrUpdateFile: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			action: "create",
+			reason: "New API package",
+			suggestedContent: "# API\n\nContent here.\n",
+		};
+
+		await createIntentAddCommit(client, update, {
+			branch: "main",
+			symlink: true,
+			symlinkSource: "claude",
+		});
+
+		// CLAUDE.md should be the source (not a symlink)
+		const claudeFile = filesCreated.find((f) => f.path.endsWith("CLAUDE.md"));
+		expect(claudeFile).toBeDefined();
+		expect(claudeFile?.isSymlink).toBe(false);
+		expect(claudeFile?.content).toBe("# API\n\nContent here.\n");
+
+		// AGENTS.md should be a symlink pointing to CLAUDE.md
+		const agentsFile = filesCreated.find((f) => f.path.endsWith("AGENTS.md"));
+		expect(agentsFile).toBeDefined();
+		expect(agentsFile?.isSymlink).toBe(true);
+		expect(agentsFile?.content).toBe("CLAUDE.md");
+	});
+
+	test("falls back to regular file creation when symlink is false", async () => {
+		let callCount = 0;
+		const mockGetFileContent = mock(async () => {
+			const error = new Error("Not Found") as Error & { status: number };
+			error.status = 404;
+			throw error;
+		});
+
+		const createdFiles: string[] = [];
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			createdFiles.push(path);
+			return {
+				commit: {
+					sha: `sha${++callCount}`,
+					html_url: `https://github.com/commit/sha${callCount}`,
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+			createFilesWithSymlinks: mock(async () => ({})),
+		} as unknown as GitHubClient;
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			action: "create",
+			reason: "New API package",
+			suggestedContent: "# API\n",
+		};
+
+		await createIntentAddCommit(client, update, {
+			branch: "main",
+			symlink: false, // Explicitly disabled
+		});
+
+		// Should use regular file creation, not symlinks
+		expect(createdFiles).toContain("packages/api/AGENTS.md");
+		expect(createdFiles).toContain("packages/api/CLAUDE.md");
+	});
+});
+
+describe("createIntentUpdateCommit with symlink", () => {
+	test("only updates source file when symlink mode is enabled", async () => {
+		const mockGetFileContent = mock(async () => ({
+			sha: "existingsha123",
+			type: "file",
+			content: "SGVsbG8=",
+		}));
+
+		let updatedPath = "";
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			updatedPath = path;
+			return {
+				commit: {
+					sha: "newsha456",
+					html_url: "https://github.com/owner/repo/commit/newsha456",
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		const update: IntentUpdate = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			action: "update",
+			reason: "Updated API documentation",
+			currentContent: "# API\n\nOld content.\n",
+			suggestedContent: "# API\n\nNew content.\n",
+		};
+
+		const result = await createIntentUpdateCommit(client, update, {
+			branch: "feature/api-update",
+			symlink: true,
+			symlinkSource: "agents",
+		});
+
+		expect(result.sha).toBe("newsha456");
+		// Should only update AGENTS.md (the source), not CLAUDE.md (the symlink)
+		expect(updatedPath).toBe("packages/api/AGENTS.md");
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(1);
+	});
+
+	test("updates source file (otherNodePath) when nodePath is the symlink", async () => {
+		const mockGetFileContent = mock(async () => ({
+			sha: "existingsha123",
+			type: "file",
+			content: "SGVsbG8=",
+		}));
+
+		let updatedPath = "";
+		const mockCreateOrUpdateFile = mock(async (path: string) => {
+			updatedPath = path;
+			return {
+				commit: {
+					sha: "newsha456",
+					html_url: "https://github.com/owner/repo/commit/newsha456",
+				},
+				content: {
+					sha: "blobsha",
+				},
+			};
+		});
+
+		const client = {
+			getFileContent: mockGetFileContent,
+			createOrUpdateFile: mockCreateOrUpdateFile,
+		} as unknown as GitHubClient;
+
+		// nodePath is CLAUDE.md, but symlinkSource is "agents"
+		// So CLAUDE.md is the symlink, AGENTS.md is the source
+		const update: IntentUpdate = {
+			nodePath: "packages/api/CLAUDE.md",
+			otherNodePath: "packages/api/AGENTS.md",
+			action: "update",
+			reason: "Updated API documentation",
+			currentContent: "# API\n\nOld content.\n",
+			suggestedContent: "# API\n\nNew content.\n",
+		};
+
+		const result = await createIntentUpdateCommit(client, update, {
+			branch: "feature/api-update",
+			symlink: true,
+			symlinkSource: "agents",
+		});
+
+		expect(result.sha).toBe("newsha456");
+		// Should update AGENTS.md (the source), even though nodePath is CLAUDE.md
+		expect(updatedPath).toBe("packages/api/AGENTS.md");
+		expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(1);
+	});
+});

@@ -323,6 +323,163 @@ export class GitHubClient {
 		});
 		return data;
 	}
+
+	/**
+	 * Create a blob in the repository
+	 */
+	async createBlob(content: string, encoding: "utf-8" | "base64" = "utf-8") {
+		const { data } = await this.octokit.rest.git.createBlob({
+			...this.repo,
+			content,
+			encoding,
+		});
+		return data;
+	}
+
+	/**
+	 * Create a tree in the repository
+	 */
+	async createTree(
+		tree: Array<{
+			path: string;
+			mode: "100644" | "100755" | "040000" | "160000" | "120000";
+			type: "blob" | "tree" | "commit";
+			sha?: string | null;
+			content?: string;
+		}>,
+		baseTree?: string,
+	) {
+		const { data } = await this.octokit.rest.git.createTree({
+			...this.repo,
+			tree,
+			base_tree: baseTree,
+		});
+		return data;
+	}
+
+	/**
+	 * Create a commit in the repository
+	 */
+	async createCommit(
+		message: string,
+		tree: string,
+		parents: string[],
+		author?: { name: string; email: string },
+	) {
+		const { data } = await this.octokit.rest.git.createCommit({
+			...this.repo,
+			message,
+			tree,
+			parents,
+			author,
+		});
+		return data;
+	}
+
+	/**
+	 * Update a reference (branch) in the repository
+	 */
+	async updateRef(ref: string, sha: string, force = false) {
+		const { data } = await this.octokit.rest.git.updateRef({
+			...this.repo,
+			ref,
+			sha,
+			force,
+		});
+		return data;
+	}
+
+	/**
+	 * Get a reference (branch) from the repository
+	 */
+	async getRef(ref: string) {
+		const { data } = await this.octokit.rest.git.getRef({
+			...this.repo,
+			ref,
+		});
+		return data;
+	}
+
+	/**
+	 * Create multiple files including symlinks in a single commit.
+	 *
+	 * This uses the Git Tree API to create symlinks (mode 120000)
+	 * which cannot be done with the standard file contents API.
+	 *
+	 * @param files - Array of files to create/update
+	 * @param message - Commit message
+	 * @param branch - Branch to commit to
+	 * @returns Commit result with SHA and URL
+	 */
+	async createFilesWithSymlinks(
+		files: Array<{
+			path: string;
+			content: string;
+			isSymlink: boolean;
+		}>,
+		message: string,
+		branch: string,
+	): Promise<{ sha: string; url: string }> {
+		const { owner, repo } = this.repo;
+
+		// Get the current commit SHA for the branch
+		const refData = await this.getRef(`heads/${branch}`);
+		const currentCommitSha = refData.object.sha;
+
+		// Get the current commit to find the tree SHA
+		const { data: commitData } = await this.octokit.rest.git.getCommit({
+			owner,
+			repo,
+			commit_sha: currentCommitSha,
+		});
+		const baseTreeSha = commitData.tree.sha;
+
+		// Create tree entries for each file
+		const treeEntries: Array<{
+			path: string;
+			mode: "100644" | "100755" | "040000" | "160000" | "120000";
+			type: "blob" | "tree" | "commit";
+			sha?: string;
+			content?: string;
+		}> = [];
+
+		for (const file of files) {
+			if (file.isSymlink) {
+				// For symlinks, create a blob with the target path and use mode 120000
+				const blob = await this.createBlob(file.content, "utf-8");
+				treeEntries.push({
+					path: file.path,
+					mode: "120000", // Symlink mode
+					type: "blob",
+					sha: blob.sha,
+				});
+			} else {
+				// For regular files, we can include the content directly
+				treeEntries.push({
+					path: file.path,
+					mode: "100644",
+					type: "blob",
+					content: file.content,
+				});
+			}
+		}
+
+		// Create the new tree based on the current tree
+		const newTree = await this.createTree(treeEntries, baseTreeSha);
+
+		// Create the commit
+		const newCommit = await this.createCommit(message, newTree.sha, [
+			currentCommitSha,
+		]);
+
+		// Update the branch to point to the new commit
+		await this.updateRef(`heads/${branch}`, newCommit.sha);
+
+		return {
+			sha: newCommit.sha,
+			url: newCommit.html_url,
+		};
+	}
 }
 
 /**

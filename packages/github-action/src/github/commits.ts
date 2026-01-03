@@ -10,6 +10,7 @@
  * - [INTENT:REVERT] path/to/AGENTS.md - Description
  */
 
+import type { SymlinkSource } from "../config/schema.js";
 import type { IntentUpdate } from "../opencode/output-schema.js";
 import type { GitHubClient } from "./client.js";
 
@@ -37,6 +38,10 @@ export interface IntentCommitOptions {
 	authorName?: string;
 	/** Optional author email (defaults to GitHub Actions bot email) */
 	authorEmail?: string;
+	/** Whether to create symlinks between AGENTS.md and CLAUDE.md */
+	symlink?: boolean;
+	/** Which file is the source of truth when symlinking (agents or claude) */
+	symlinkSource?: SymlinkSource;
 }
 
 /**
@@ -132,14 +137,42 @@ function isNotFoundError(error: unknown): boolean {
 }
 
 /**
+ * Get the filename from a path.
+ *
+ * @param path - File path
+ * @returns Filename
+ */
+function getFilename(path: string): string {
+	const lastSlash = path.lastIndexOf("/");
+	return lastSlash === -1 ? path : path.substring(lastSlash + 1);
+}
+
+/**
+ * Determine the symlink target path for intent files in the same directory.
+ * Returns the filename of the target since symlinks are relative.
+ *
+ * @param symlinkPath - Path of the symlink file
+ * @param targetPath - Path of the target file
+ * @returns Relative symlink target (just the filename)
+ */
+function getSymlinkTarget(symlinkPath: string, targetPath: string): string {
+	// Since both files are in the same directory, the target is just the filename
+	return getFilename(targetPath);
+}
+
+/**
  * Create an [INTENT:ADD] commit for a new intent file.
  *
  * This creates a new file in the repository with the suggested content
  * from an intent update. The file must not already exist.
  *
+ * When symlink option is enabled and otherNodePath is specified:
+ * - The source file (based on symlinkSource) contains the actual content
+ * - The other file is created as a symlink pointing to the source
+ *
  * @param client - GitHub client for API operations
  * @param update - The intent update with action="create"
- * @param options - Commit options including branch
+ * @param options - Commit options including branch and symlink settings
  * @returns Result of the commit operation
  * @throws Error if the file already exists or update is not a create action
  */
@@ -173,7 +206,28 @@ export async function createIntentAddCommit(
 		update.reason,
 	);
 
-	// Create the file
+	// Handle symlink creation when both files are being managed
+	if (update.otherNodePath && options.symlink) {
+		const otherExistingSha = await getFileSha(
+			client,
+			update.otherNodePath,
+			options.branch,
+		);
+		if (!otherExistingSha) {
+			// Create both files with symlink using the Git Tree API
+			return createFilesWithSymlink(
+				client,
+				update.nodePath,
+				update.otherNodePath,
+				update.suggestedContent,
+				commitMessage,
+				options.branch,
+				options.symlinkSource ?? "agents",
+			);
+		}
+	}
+
+	// Standard file creation without symlink
 	const result = await client.createOrUpdateFile(
 		update.nodePath,
 		update.suggestedContent,
@@ -182,10 +236,10 @@ export async function createIntentAddCommit(
 		undefined, // No SHA since file doesn't exist
 	);
 
-	// Handle the otherNodePath if both files are being managed
+	// Handle the otherNodePath if both files are being managed (non-symlink mode)
 	// For INTENT:ADD, if otherNodePath is specified, we create that file too
 	// with the same content (they're kept in sync)
-	if (update.otherNodePath) {
+	if (update.otherNodePath && !options.symlink) {
 		const otherExistingSha = await getFileSha(
 			client,
 			update.otherNodePath,
@@ -208,6 +262,73 @@ export async function createIntentAddCommit(
 		url: result.commit.html_url ?? "",
 		filePath: update.nodePath,
 		message: commitMessage,
+	};
+}
+
+/**
+ * Create both source file and symlink in a single commit.
+ *
+ * @param client - GitHub client
+ * @param nodePath - Path to the primary intent file
+ * @param otherNodePath - Path to the secondary intent file
+ * @param content - Content for the source file
+ * @param message - Commit message
+ * @param branch - Branch to commit to
+ * @param symlinkSource - Which file type is the source (agents or claude)
+ * @returns Commit result
+ */
+async function createFilesWithSymlink(
+	client: GitHubClient,
+	nodePath: string,
+	otherNodePath: string,
+	content: string,
+	message: string,
+	branch: string,
+	symlinkSource: SymlinkSource,
+): Promise<CommitResult> {
+	// Determine which file is the source and which is the symlink
+	const nodeFilename = getFilename(nodePath);
+	const isNodeAgents = nodeFilename === "AGENTS.md";
+
+	let sourcePath: string;
+	let symlinkPath: string;
+
+	if (symlinkSource === "agents") {
+		// AGENTS.md is source, CLAUDE.md is symlink
+		sourcePath = isNodeAgents ? nodePath : otherNodePath;
+		symlinkPath = isNodeAgents ? otherNodePath : nodePath;
+	} else {
+		// CLAUDE.md is source, AGENTS.md is symlink
+		sourcePath = isNodeAgents ? otherNodePath : nodePath;
+		symlinkPath = isNodeAgents ? nodePath : otherNodePath;
+	}
+
+	// Create the symlink target (relative path, just the filename)
+	const symlinkTarget = getSymlinkTarget(symlinkPath, sourcePath);
+
+	// Create both files using the Git Tree API
+	const result = await client.createFilesWithSymlinks(
+		[
+			{
+				path: sourcePath,
+				content: content,
+				isSymlink: false,
+			},
+			{
+				path: symlinkPath,
+				content: symlinkTarget,
+				isSymlink: true,
+			},
+		],
+		message,
+		branch,
+	);
+
+	return {
+		sha: result.sha,
+		url: result.url,
+		filePath: nodePath,
+		message: message,
 	};
 }
 
@@ -279,6 +400,10 @@ export interface RevertCommitOptions {
 	otherNodePath?: string;
 	/** Optional reason for the revert */
 	reason?: string;
+	/** Whether symlinks are enabled (affects how we handle other file) */
+	symlink?: boolean;
+	/** Which file is the source of truth when symlinking */
+	symlinkSource?: SymlinkSource;
 }
 
 /**
@@ -287,9 +412,13 @@ export interface RevertCommitOptions {
  * This updates an existing file in the repository with the suggested content
  * from an intent update. The file must already exist.
  *
+ * When symlink option is enabled and the files are symlinked:
+ * - Only the source file content is updated
+ * - The symlink automatically reflects the changes
+ *
  * @param client - GitHub client for API operations
  * @param update - The intent update with action="update"
- * @param options - Commit options including branch
+ * @param options - Commit options including branch and symlink settings
  * @returns Result of the commit operation
  * @throws Error if the file doesn't exist or update is not an update action
  */
@@ -327,6 +456,58 @@ export async function createIntentUpdateCommit(
 		update.reason,
 	);
 
+	// When symlink mode is enabled, we only need to update the source file
+	// The symlink will automatically point to the updated content
+	if (options.symlink && update.otherNodePath) {
+		// Determine which file is the source based on symlinkSource
+		const nodeFilename = getFilename(update.nodePath);
+		const isNodeAgents = nodeFilename === "AGENTS.md";
+		const symlinkSource = options.symlinkSource ?? "agents";
+
+		// Check if nodePath is the source file
+		const nodeIsSource =
+			(symlinkSource === "agents" && isNodeAgents) ||
+			(symlinkSource === "claude" && !isNodeAgents);
+
+		if (nodeIsSource) {
+			// nodePath is the source, just update it
+			const result = await client.createOrUpdateFile(
+				update.nodePath,
+				update.suggestedContent,
+				commitMessage,
+				options.branch,
+				existingSha,
+			);
+			return {
+				sha: result.commit.sha ?? "",
+				url: result.commit.html_url ?? "",
+				filePath: update.nodePath,
+				message: commitMessage,
+			};
+		}
+		// nodePath is the symlink, update the source (otherNodePath) instead
+		const otherExistingSha = await getFileSha(
+			client,
+			update.otherNodePath,
+			options.branch,
+		);
+		if (otherExistingSha) {
+			const result = await client.createOrUpdateFile(
+				update.otherNodePath,
+				update.suggestedContent,
+				commitMessage,
+				options.branch,
+				otherExistingSha,
+			);
+			return {
+				sha: result.commit.sha ?? "",
+				url: result.commit.html_url ?? "",
+				filePath: update.nodePath,
+				message: commitMessage,
+			};
+		}
+	}
+
 	// Update the file
 	const result = await client.createOrUpdateFile(
 		update.nodePath,
@@ -336,10 +517,10 @@ export async function createIntentUpdateCommit(
 		existingSha, // Provide SHA to update existing file
 	);
 
-	// Handle the otherNodePath if both files are being managed
+	// Handle the otherNodePath if both files are being managed (non-symlink mode)
 	// For INTENT:UPDATE, if otherNodePath is specified, we update that file too
 	// with the same content (they're kept in sync)
-	if (update.otherNodePath) {
+	if (update.otherNodePath && !options.symlink) {
 		const otherExistingSha = await getFileSha(
 			client,
 			update.otherNodePath,
