@@ -218,7 +218,7 @@ prompts:
 - [x] 7.5 Build context payload (PR info, commits, issues, diff, existing nodes)
 - [ ] 7.6 Implement prompt for updating existing nodes
 - [ ] 7.7 Implement prompt for proposing new nodes (skip if `new_nodes: false`)
-- [ ] 7.8 Implement prompt for suggesting node splits
+- [x] 7.8 Implement prompt for suggesting node splits
 - [ ] 7.9 Apply pattern-matched custom prompts
 - [ ] 7.10 Parse and schema-validate structured JSON output from stdout
 - [ ] 7.11 Handle model access errors (fail action with clear message)

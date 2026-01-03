@@ -12,6 +12,7 @@ import {
 	buildAnalysisPrompt,
 	buildInitializationPrompt,
 	buildNewNodePrompt,
+	buildNodeSplitPrompt,
 	buildSingleNodeUpdatePrompt,
 	CONTENT_GUIDELINES,
 	formatChangedFiles,
@@ -23,6 +24,7 @@ import {
 	formatSemanticBoundaryCandidates,
 	type IntentContext,
 	type IntentNodeWithContent,
+	type NodeSplitContext,
 	type NodeUpdateCandidateWithContent,
 	OUTPUT_SCHEMA_DESCRIPTION,
 	type ParentNodeReviewCandidateWithContent,
@@ -715,5 +717,201 @@ describe("buildInitializationPrompt", () => {
 		);
 
 		expect(result).toContain("... and 20 more files");
+	});
+});
+
+describe("buildNodeSplitPrompt", () => {
+	function createMockSplitContext(
+		overrides: Partial<NodeSplitContext> = {},
+	): NodeSplitContext {
+		return {
+			nodePath: "packages/core/AGENTS.md",
+			currentContent:
+				"# Core Package\n\nThis package contains utilities and helpers.",
+			nodeDirectory: "packages/core",
+			budgetPercent: 8.5,
+			budgetThreshold: 5,
+			splitSuggestions: [
+				{
+					suggestedDirectory: "packages/core/utils",
+					suggestedNodePath: "packages/core/utils/AGENTS.md",
+					coveredFiles: [
+						"packages/core/utils/helpers.ts",
+						"packages/core/utils/validators.ts",
+						"packages/core/utils/formatters.ts",
+					],
+					coveragePercent: 35.2,
+				},
+				{
+					suggestedDirectory: "packages/core/services",
+					suggestedNodePath: "packages/core/services/AGENTS.md",
+					coveredFiles: [
+						"packages/core/services/api.ts",
+						"packages/core/services/auth.ts",
+						"packages/core/services/cache.ts",
+						"packages/core/services/queue.ts",
+					],
+					coveragePercent: 42.8,
+				},
+			],
+			...overrides,
+		};
+	}
+
+	test("builds split prompt with budget analysis", () => {
+		const splitContext = createMockSplitContext();
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain("Intent Layer Analyst");
+		expect(result).toContain("Split Large Intent Node");
+		expect(result).toContain("packages/core/AGENTS.md");
+		expect(result).toContain("Budget Analysis");
+		expect(result).toContain("Current budget: 8.5%");
+		expect(result).toContain("Threshold: 5%");
+		expect(result).toContain("Exceeds budget by 3.5 percentage points");
+	});
+
+	test("includes current content", () => {
+		const splitContext = createMockSplitContext({
+			currentContent: "# My Custom Content\n\nSpecial documentation here.",
+		});
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain("Current Content");
+		expect(result).toContain("# My Custom Content");
+		expect(result).toContain("Special documentation here");
+	});
+
+	test("includes split suggestions with coverage info", () => {
+		const splitContext = createMockSplitContext();
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain("Suggested Splits");
+		expect(result).toContain("packages/core/utils/AGENTS.md");
+		expect(result).toContain("packages/core/utils");
+		expect(result).toContain("35.2% of parent's covered code");
+		expect(result).toContain("packages/core/utils/helpers.ts");
+		expect(result).toContain("packages/core/services/AGENTS.md");
+		expect(result).toContain("42.8% of parent's covered code");
+	});
+
+	test("truncates long file lists in suggestions", () => {
+		const manyFiles = Array(15)
+			.fill(null)
+			.map((_, i) => `packages/core/utils/file${i}.ts`);
+
+		const splitContext = createMockSplitContext({
+			splitSuggestions: [
+				{
+					suggestedDirectory: "packages/core/utils",
+					suggestedNodePath: "packages/core/utils/AGENTS.md",
+					coveredFiles: manyFiles,
+					coveragePercent: 60,
+				},
+			],
+		});
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain("... and 5 more files");
+	});
+
+	test("includes instructions for split process", () => {
+		const splitContext = createMockSplitContext();
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain("Instructions");
+		expect(result).toContain("Update the parent node");
+		expect(result).toContain("Create new child nodes");
+		expect(result).toContain("cross-cutting concerns");
+		expect(result).toContain("Respond with ONLY the JSON object");
+	});
+
+	test("uses correct file type for claude", () => {
+		const splitContext = createMockSplitContext({
+			nodePath: "packages/core/CLAUDE.md",
+			splitSuggestions: [
+				{
+					suggestedDirectory: "packages/core/utils",
+					suggestedNodePath: "packages/core/utils/CLAUDE.md",
+					coveredFiles: ["packages/core/utils/helpers.ts"],
+					coveragePercent: 50,
+				},
+			],
+		});
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"claude",
+		);
+
+		expect(result).toContain("CLAUDE.md");
+		expect(result).toContain("packages/core/utils/CLAUDE.md");
+	});
+
+	test("includes PR context", () => {
+		const splitContext = createMockSplitContext();
+		const prMetadata = createMockPRMetadata({
+			title: "Refactor core utilities",
+			description: "Major refactoring of the core package",
+		});
+
+		const result = buildNodeSplitPrompt(splitContext, prMetadata, "agents");
+
+		expect(result).toContain("PR Context: Refactor core utilities");
+		expect(result).toContain("Major refactoring of the core package");
+	});
+
+	test("handles empty current content", () => {
+		const splitContext = createMockSplitContext({
+			currentContent: "",
+		});
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain("(empty file)");
+	});
+
+	test("includes schema description", () => {
+		const splitContext = createMockSplitContext();
+
+		const result = buildNodeSplitPrompt(
+			splitContext,
+			createMockPRMetadata(),
+			"agents",
+		);
+
+		expect(result).toContain('"updates"');
+		expect(result).toContain('"create"');
+		expect(result).toContain('"update"');
 	});
 });

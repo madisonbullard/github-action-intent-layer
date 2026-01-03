@@ -565,6 +565,153 @@ export function buildSingleNodeUpdatePrompt(
 }
 
 /**
+ * Context for a node that needs to be split.
+ */
+export interface NodeSplitContext {
+	/** Path to the intent node that needs splitting */
+	nodePath: string;
+	/** Current content of the intent node */
+	currentContent: string;
+	/** Directory the node covers */
+	nodeDirectory: string;
+	/** Current token budget percentage (exceeds threshold) */
+	budgetPercent: number;
+	/** Token budget threshold percentage */
+	budgetThreshold: number;
+	/** Suggestions for where to split */
+	splitSuggestions: SplitSuggestionContext[];
+}
+
+/**
+ * Context for a split suggestion.
+ */
+export interface SplitSuggestionContext {
+	/** Directory path where a new intent node should be created */
+	suggestedDirectory: string;
+	/** Full path for the new intent file */
+	suggestedNodePath: string;
+	/** Files that would be covered by the new node */
+	coveredFiles: string[];
+	/** Percentage of parent node's coverage this would absorb */
+	coveragePercent: number;
+}
+
+/**
+ * Build a prompt for suggesting node splits.
+ *
+ * This prompt guides the LLM to split a large intent node into smaller,
+ * more focused nodes. Split operations are modeled as an `update` to the
+ * existing node (removing content that moves to children) + `create` for
+ * each new child node.
+ *
+ * @param splitContext - Context about the node that needs splitting
+ * @param prMetadata - PR metadata for context
+ * @param fileType - Which file type is being managed
+ * @returns Prompt string for node split suggestion
+ */
+export function buildNodeSplitPrompt(
+	splitContext: NodeSplitContext,
+	prMetadata: PRMetadata,
+	fileType: "agents" | "claude",
+): string {
+	const sections: string[] = [];
+	const intentFileName = fileType === "agents" ? "AGENTS.md" : "CLAUDE.md";
+
+	sections.push(ANALYST_ROLE);
+	sections.push("");
+	sections.push(OUTPUT_SCHEMA_DESCRIPTION);
+	sections.push("");
+	sections.push(CONTENT_GUIDELINES);
+	sections.push("");
+
+	sections.push("## Task: Split Large Intent Node");
+	sections.push("");
+	sections.push(
+		`The intent node at \`${splitContext.nodePath}\` exceeds the token budget threshold and should be split into smaller, more focused nodes.`,
+	);
+	sections.push("");
+	sections.push("**Budget Analysis:**");
+	sections.push(`- Current budget: ${splitContext.budgetPercent.toFixed(1)}%`);
+	sections.push(`- Threshold: ${splitContext.budgetThreshold}%`);
+	sections.push(
+		`- Status: Exceeds budget by ${(splitContext.budgetPercent - splitContext.budgetThreshold).toFixed(1)} percentage points`,
+	);
+	sections.push("");
+
+	// PR context (brief)
+	sections.push(`## PR Context: ${prMetadata.title}`);
+	sections.push(prMetadata.description || "(no description)");
+	sections.push("");
+
+	// Current content
+	sections.push("## Current Content");
+	sections.push(`**File:** ${splitContext.nodePath}`);
+	sections.push("```markdown");
+	sections.push(splitContext.currentContent || "(empty file)");
+	sections.push("```");
+	sections.push("");
+
+	// Split suggestions
+	sections.push("## Suggested Splits");
+	sections.push("");
+	sections.push(
+		"The following directories contain enough code to warrant their own intent nodes:",
+	);
+	sections.push("");
+
+	for (const suggestion of splitContext.splitSuggestions) {
+		sections.push(`### ${suggestion.suggestedNodePath}`);
+		sections.push("");
+		sections.push(`**Directory:** ${suggestion.suggestedDirectory}`);
+		sections.push(
+			`**Coverage:** ${suggestion.coveragePercent.toFixed(1)}% of parent's covered code`,
+		);
+		sections.push(`**Files (${suggestion.coveredFiles.length}):**`);
+		for (const file of suggestion.coveredFiles.slice(0, 10)) {
+			sections.push(`- ${file}`);
+		}
+		if (suggestion.coveredFiles.length > 10) {
+			sections.push(
+				`- ... and ${suggestion.coveredFiles.length - 10} more files`,
+			);
+		}
+		sections.push("");
+	}
+
+	// Instructions
+	sections.push("## Instructions");
+	sections.push("");
+	sections.push(
+		"Generate a JSON response with updates that split this node. This should include:",
+	);
+	sections.push("");
+	sections.push(
+		`1. **Update the parent node** (\`${splitContext.nodePath}\`): Remove content that is specific to the directories being split out. Keep only high-level, cross-cutting information that applies to the entire directory.`,
+	);
+	sections.push("");
+	sections.push(
+		`2. **Create new child nodes**: For each suggested split above, create a new ${intentFileName} file with content specific to that directory. The content should:`,
+	);
+	sections.push("   - Focus on the specific directory's purpose and patterns");
+	sections.push("   - Include relevant details moved from the parent node");
+	sections.push("   - Be self-contained but avoid duplicating parent context");
+	sections.push("");
+	sections.push("**Important:**");
+	sections.push(
+		"- The parent node should become leaner and more focused on cross-cutting concerns",
+	);
+	sections.push(
+		"- Child nodes should be detailed and specific to their directories",
+	);
+	sections.push("- Avoid duplicating information between parent and children");
+	sections.push("- Each child node should be able to stand alone for its area");
+	sections.push("");
+	sections.push("Respond with ONLY the JSON object. No other text.");
+
+	return sections.join("\n");
+}
+
+/**
  * Build a prompt for creating a new intent node.
  *
  * @param candidate - The semantic boundary candidate
