@@ -269,7 +269,7 @@ prompts:
 - [x] 13.1 Create test repository with various intent layer configs
 - [x] 13.2 Integration test: no intent layer → initialization suggestion
 - [x] 13.3 Integration test: update existing node
-- [ ] 13.4 Integration test: propose new node (`new_nodes: true`)
+- [x] 13.4 Integration test: propose new node (`new_nodes: true`)
 - [ ] 13.5 Integration test: checkbox toggle → commit
 - [ ] 13.6 Integration test: checkbox untoggle → revert
 - [ ] 13.7 Integration test: symlink handling (both directions)
