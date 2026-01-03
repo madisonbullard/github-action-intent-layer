@@ -271,7 +271,7 @@ prompts:
 - [x] 13.3 Integration test: update existing node
 - [x] 13.4 Integration test: propose new node (`new_nodes: true`)
 - [x] 13.5 Integration test: checkbox toggle → commit
-- [ ] 13.6 Integration test: checkbox untoggle → revert
+- [x] 13.6 Integration test: checkbox untoggle → revert
 - [ ] 13.7 Integration test: symlink handling (both directions)
 - [ ] 13.8 Integration test: token budget enforcement (binary/large file skipping)
 - [ ] 13.9 Integration test: `output: new_pr` mode
