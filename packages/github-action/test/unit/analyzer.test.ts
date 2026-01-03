@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { PRChangedFile, PRDiff } from "../../src/github/context";
 import {
+	determineNodesNeedingUpdate,
 	filterIgnoredFiles,
 	getAffectedNodes,
 	getChangedFilesForNode,
 	getIgnoredChangedFiles,
+	getNodesNeedingUpdate,
 	getUncoveredChangedFiles,
 	hasAffectedNodes,
 	mapChangedFilesToNodes,
@@ -533,5 +535,218 @@ describe("filterIgnoredFiles", () => {
 
 		expect(filtered.summary.uncoveredFiles).toBe(1);
 		expect(filtered.byNode.get(UNCOVERED_KEY)).toHaveLength(1);
+	});
+});
+
+describe("determineNodesNeedingUpdate", () => {
+	test("returns empty result for empty diff", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.candidates).toHaveLength(0);
+		expect(result.totalNodes).toBe(0);
+		expect(result.hasUpdates).toBe(false);
+	});
+
+	test("identifies nodes needing updates based on changed files", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("README.md"),
+			createChangedFile("src/index.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.hasUpdates).toBe(true);
+		expect(result.totalNodes).toBe(2);
+		expect(result.candidates.map((c) => c.node.file.path).sort()).toEqual([
+			"AGENTS.md",
+			"src/AGENTS.md",
+		]);
+	});
+
+	test("excludes ignored files from triggering updates", () => {
+		const intentFiles = [createIntentFile("src/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const ignore = new IntentLayerIgnore();
+		ignore.add("*.test.ts");
+
+		// All files in src/ are either ignored or test files
+		const diff = createDiff([
+			createChangedFile("src/index.test.ts"), // Ignored
+			createChangedFile("src/utils.test.ts"), // Ignored
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy, ignore);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		// Node should NOT need update because all files are ignored
+		expect(result.hasUpdates).toBe(false);
+		expect(result.totalNodes).toBe(0);
+	});
+
+	test("includes node if at least one non-ignored file exists", () => {
+		const intentFiles = [createIntentFile("src/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const ignore = new IntentLayerIgnore();
+		ignore.add("*.test.ts");
+
+		const diff = createDiff([
+			createChangedFile("src/index.ts"), // Not ignored
+			createChangedFile("src/index.test.ts"), // Ignored
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy, ignore);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.hasUpdates).toBe(true);
+		expect(result.totalNodes).toBe(1);
+		expect(result.candidates[0]!.changedFiles).toHaveLength(1);
+		expect(result.candidates[0]!.changedFiles[0]!.file.filename).toBe(
+			"src/index.ts",
+		);
+	});
+
+	test("calculates change summary correctly", () => {
+		const intentFiles = [createIntentFile("AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("src/new-file.ts", "added", 50, 0),
+			createChangedFile("src/existing.ts", "modified", 20, 10),
+			createChangedFile("src/old-file.ts", "removed", 0, 30),
+			createChangedFile("src/renamed.ts", "renamed", 5, 5),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.candidates).toHaveLength(1);
+		const summary = result.candidates[0]!.changeSummary;
+		expect(summary.filesAdded).toBe(1);
+		expect(summary.filesModified).toBe(1);
+		expect(summary.filesRemoved).toBe(1);
+		expect(summary.filesRenamed).toBe(1);
+		expect(summary.totalAdditions).toBe(75); // 50 + 20 + 0 + 5
+		expect(summary.totalDeletions).toBe(45); // 0 + 10 + 30 + 5
+	});
+
+	test("only includes nearest covering node, not parents", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts"),
+			createChangedFile("packages/api/routes/users.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		// Only packages/api/AGENTS.md should be identified, not parents
+		expect(result.totalNodes).toBe(1);
+		expect(result.candidates[0]!.node.file.path).toBe("packages/api/AGENTS.md");
+	});
+
+	test("handles multiple nodes with changes correctly", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+			createIntentFile("packages/web/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("README.md"), // Root
+			createChangedFile("packages/api/handler.ts"), // packages/api
+			createChangedFile("packages/web/App.tsx"), // packages/web
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.totalNodes).toBe(3);
+		expect(result.candidates.map((c) => c.node.file.path).sort()).toEqual([
+			"AGENTS.md",
+			"packages/api/AGENTS.md",
+			"packages/web/AGENTS.md",
+		]);
+	});
+
+	test("returns candidates sorted by path", () => {
+		const intentFiles = [
+			createIntentFile("packages/web/AGENTS.md"),
+			createIntentFile("AGENTS.md"),
+			createIntentFile("packages/api/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("packages/web/App.tsx"),
+			createChangedFile("README.md"),
+			createChangedFile("packages/api/handler.ts"),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+
+		const result = determineNodesNeedingUpdate(mapping);
+
+		expect(result.candidates.map((c) => c.node.file.path)).toEqual([
+			"AGENTS.md",
+			"packages/api/AGENTS.md",
+			"packages/web/AGENTS.md",
+		]);
+	});
+});
+
+describe("getNodesNeedingUpdate", () => {
+	test("combines mapping and determination in one call", () => {
+		const intentFiles = [
+			createIntentFile("AGENTS.md"),
+			createIntentFile("src/AGENTS.md"),
+		];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const diff = createDiff([
+			createChangedFile("README.md"),
+			createChangedFile("src/index.ts"),
+		]);
+
+		const result = getNodesNeedingUpdate(diff, hierarchy);
+
+		expect(result.hasUpdates).toBe(true);
+		expect(result.totalNodes).toBe(2);
+	});
+
+	test("applies ignore patterns correctly", () => {
+		const intentFiles = [createIntentFile("src/AGENTS.md")];
+		const hierarchy = buildHierarchy(intentFiles, "agents");
+		const ignore = new IntentLayerIgnore();
+		ignore.add("*.test.ts");
+
+		const diff = createDiff([
+			createChangedFile("src/index.test.ts"), // Ignored
+		]);
+
+		const result = getNodesNeedingUpdate(diff, hierarchy, ignore);
+
+		expect(result.hasUpdates).toBe(false);
+	});
+
+	test("works with empty hierarchy", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([createChangedFile("src/index.ts")]);
+
+		const result = getNodesNeedingUpdate(diff, hierarchy);
+
+		expect(result.hasUpdates).toBe(false);
+		expect(result.totalNodes).toBe(0);
 	});
 });

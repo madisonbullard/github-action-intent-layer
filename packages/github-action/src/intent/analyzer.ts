@@ -236,6 +236,174 @@ export function hasAffectedNodes(mapping: ChangedFilesMappingResult): boolean {
 }
 
 /**
+ * Represents a node that has been determined to need an update.
+ */
+export interface NodeUpdateCandidate {
+	/** The intent node that needs updating */
+	node: IntentNode;
+	/** Changed files that triggered this update (non-ignored files covered by this node) */
+	changedFiles: ChangedFileCoverage[];
+	/** Summary of changes affecting this node */
+	changeSummary: NodeChangeSummary;
+}
+
+/**
+ * Summary of changes affecting a single intent node.
+ */
+export interface NodeChangeSummary {
+	/** Number of files added in this node's coverage area */
+	filesAdded: number;
+	/** Number of files modified in this node's coverage area */
+	filesModified: number;
+	/** Number of files removed from this node's coverage area */
+	filesRemoved: number;
+	/** Number of files renamed in this node's coverage area */
+	filesRenamed: number;
+	/** Total lines added across all changed files */
+	totalAdditions: number;
+	/** Total lines deleted across all changed files */
+	totalDeletions: number;
+}
+
+/**
+ * Result of determining which nodes need updates.
+ */
+export interface NodesNeedingUpdateResult {
+	/** Nodes that need updates (only nearest covering nodes, no parents) */
+	candidates: NodeUpdateCandidate[];
+	/** Total number of nodes needing updates */
+	totalNodes: number;
+	/** Whether any nodes need updates */
+	hasUpdates: boolean;
+}
+
+/**
+ * Determine which nodes need updates based on the diff.
+ *
+ * This function analyzes the changed files mapping and determines which
+ * intent nodes should be updated. Only the nearest covering node for each
+ * changed file is considered (parent nodes are not included - that's a
+ * separate concern handled by reviewParentNodes).
+ *
+ * A node is considered to need an update if it has at least one non-ignored
+ * changed file in its coverage area.
+ *
+ * @param mapping - The result of mapping changed files to nodes
+ * @returns Result containing all nodes that need updates with their change details
+ */
+export function determineNodesNeedingUpdate(
+	mapping: ChangedFilesMappingResult,
+): NodesNeedingUpdateResult {
+	const candidates: NodeUpdateCandidate[] = [];
+
+	// Get all unique covering nodes (excluding uncovered files)
+	const affectedNodes = getAffectedNodes(mapping);
+
+	for (const node of affectedNodes) {
+		// Get all changed files for this node
+		const nodeFiles = getChangedFilesForNode(node.file.path, mapping);
+
+		// Filter out ignored files - only non-ignored files trigger updates
+		const nonIgnoredFiles = nodeFiles.filter((f) => !f.isIgnored);
+
+		// If no non-ignored files, this node doesn't need an update
+		if (nonIgnoredFiles.length === 0) {
+			continue;
+		}
+
+		// Calculate change summary for this node
+		const changeSummary = calculateChangeSummary(nonIgnoredFiles);
+
+		candidates.push({
+			node,
+			changedFiles: nonIgnoredFiles,
+			changeSummary,
+		});
+	}
+
+	// Sort candidates by node path for consistent ordering
+	candidates.sort((a, b) => a.node.file.path.localeCompare(b.node.file.path));
+
+	return {
+		candidates,
+		totalNodes: candidates.length,
+		hasUpdates: candidates.length > 0,
+	};
+}
+
+/**
+ * Calculate change summary for a set of changed files.
+ *
+ * @param files - Array of changed file coverages
+ * @returns Summary of the changes
+ */
+function calculateChangeSummary(
+	files: ChangedFileCoverage[],
+): NodeChangeSummary {
+	let filesAdded = 0;
+	let filesModified = 0;
+	let filesRemoved = 0;
+	let filesRenamed = 0;
+	let totalAdditions = 0;
+	let totalDeletions = 0;
+
+	for (const coverage of files) {
+		const file = coverage.file;
+		totalAdditions += file.additions;
+		totalDeletions += file.deletions;
+
+		switch (file.status) {
+			case "added":
+				filesAdded++;
+				break;
+			case "modified":
+				filesModified++;
+				break;
+			case "removed":
+				filesRemoved++;
+				break;
+			case "renamed":
+				filesRenamed++;
+				break;
+			// "copied" and "changed" are less common but count as modified
+			case "copied":
+			case "changed":
+				filesModified++;
+				break;
+		}
+	}
+
+	return {
+		filesAdded,
+		filesModified,
+		filesRemoved,
+		filesRenamed,
+		totalAdditions,
+		totalDeletions,
+	};
+}
+
+/**
+ * Get nodes that need updates, excluding nodes that only have ignored changes.
+ *
+ * This is a convenience function that combines filtering ignored files
+ * and determining nodes needing updates.
+ *
+ * @param diff - The PR diff
+ * @param hierarchy - The intent hierarchy
+ * @param ignore - Optional IntentLayerIgnore instance
+ * @returns Result containing nodes that need updates
+ */
+export function getNodesNeedingUpdate(
+	diff: PRDiff,
+	hierarchy: IntentHierarchy,
+	ignore?: IntentLayerIgnore,
+): NodesNeedingUpdateResult {
+	const mapping = mapChangedFilesToNodes(diff, hierarchy, ignore);
+	return determineNodesNeedingUpdate(mapping);
+}
+
+/**
  * Filter mapping results to only include non-ignored files.
  *
  * Useful when you want to process only the files that matter for
