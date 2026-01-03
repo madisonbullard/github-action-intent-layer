@@ -280,7 +280,7 @@ prompts:
 - [x] 14.1 Create CI workflow (`ci.yml`) - run tests on PR
 - [x] 14.2 Create release workflow (`release.yml`) - version, tag, release on main
 - [x] 14.3 Set up semantic versioning
-- [ ] 14.4 Configure GitHub Action marketplace metadata
+- [x] 14.4 Configure GitHub Action marketplace metadata
 
 ### Phase 15: Documentation
 - [ ] 15.1 Write comprehensive README with examples
