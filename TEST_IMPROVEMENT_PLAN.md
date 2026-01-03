@@ -43,7 +43,7 @@ The existing `ci.yml` has:
 
 ### Tasks
 - [x] Delete `test/integration/no-intent-layer.test.ts`
-- [ ] Delete `test/integration/propose-new-node.test.ts`
+- [x] Delete `test/integration/propose-new-node.test.ts`
 - [ ] Delete `test/integration/update-existing-node.test.ts`
 - [ ] Run full test suite to verify nothing breaks
 - [ ] Check if `test/fixtures/no-intent-layer/` is still used by remaining tests
