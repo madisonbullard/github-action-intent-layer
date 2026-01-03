@@ -1,0 +1,14 @@
+{
+	"description": "Repository with CLAUDE.md as symlink source - tests symlink handling (AGENTS.md points to CLAUDE.md)",
+	"expectedIntentFiles": ["CLAUDE.md"],
+	"expectedSymlinks": [
+		{
+			"source": "CLAUDE.md",
+			"target": "AGENTS.md"
+		}
+	],
+	"expectedBehavior": {
+		"symlinkSource": "claude",
+		"shouldDetectSymlink": true
+	}
+}

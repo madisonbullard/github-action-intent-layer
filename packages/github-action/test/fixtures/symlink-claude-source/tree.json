@@ -1,0 +1,38 @@
+{
+	"sha": "tree-symlink-claude-source-001",
+	"tree": [
+		{
+			"path": "AGENTS.md",
+			"mode": "120000",
+			"type": "blob",
+			"sha": "blob-agents-symlink-005"
+		},
+		{
+			"path": "CLAUDE.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-claude-source-005"
+		},
+		{
+			"path": "README.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-readme-005"
+		},
+		{
+			"path": "package.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-package-005"
+		},
+		{
+			"path": "src/index.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-src-index-005"
+		}
+	],
+	"symlinkTargets": {
+		"blob-agents-symlink-005": "CLAUDE.md"
+	}
+}

@@ -1,0 +1,7 @@
+{
+	"README.md": "# Test Repository\n\nRepository with CLAUDE.md as symlink source.",
+	"CLAUDE.md": "# CLAUDE.md\n\n## Build & Development\n\n- Use `npm run build` to build the project\n- Use `npm test` to run tests\n\n## Project Structure\n\nThis project uses CLAUDE.md as the source of truth.",
+	"AGENTS.md": "-> CLAUDE.md",
+	"package.json": "{\n  \"name\": \"test-repo\",\n  \"version\": \"1.0.0\"\n}",
+	"src/index.ts": "export function main() {\n  console.log('Hello, world!');\n}\n"
+}

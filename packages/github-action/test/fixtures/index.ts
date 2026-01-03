@@ -47,6 +47,8 @@ export interface FixtureConfig {
 		shouldSuggestRootAgentsMd?: boolean;
 		shouldSuggestHierarchy?: boolean;
 		canUpdateExistingNode?: boolean;
+		symlinkSource?: "agents" | "claude";
+		shouldDetectSymlink?: boolean;
 	};
 	expectedHierarchy?: {
 		roots: string[];
