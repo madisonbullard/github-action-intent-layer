@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { MAX_PR_LINES_CHANGED } from "../../src/config/defaults";
 import type { GitHubClient } from "../../src/github/client";
 import {
 	extractLinkedIssues,
@@ -11,12 +12,14 @@ import {
 	extractPRMetadataFromContext,
 	extractPRReviewComments,
 	extractPRReviewCommentsFromContext,
+	isPRTooLarge,
 	type LinkedIssue,
 	type PRChangedFile,
 	type PRCommit,
 	type PRDiff,
 	type PRMetadata,
 	type PRReviewComment,
+	type PRSizeCheckResult,
 	parseLinkedIssues,
 } from "../../src/github/context";
 
@@ -1826,6 +1829,129 @@ describe("PRDiff type structure", () => {
 
 		for (const field of expectedFields) {
 			expect(diff.summary).toHaveProperty(field);
+		}
+	});
+});
+
+// ============================================================================
+// PR Size Validation Tests
+// ============================================================================
+
+describe("isPRTooLarge", () => {
+	test("returns false for PR under the default threshold", () => {
+		const metadata = { additions: 1000, deletions: 500 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(false);
+		expect(result.totalLinesChanged).toBe(1500);
+		expect(result.threshold).toBe(MAX_PR_LINES_CHANGED);
+	});
+
+	test("returns false for PR exactly at the threshold", () => {
+		// Threshold is 100,000 - PR at exactly 100,000 should NOT be too large
+		const metadata = { additions: 50000, deletions: 50000 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(false);
+		expect(result.totalLinesChanged).toBe(100000);
+	});
+
+	test("returns true for PR exceeding the default threshold", () => {
+		const metadata = { additions: 80000, deletions: 30000 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(true);
+		expect(result.totalLinesChanged).toBe(110000);
+		expect(result.threshold).toBe(MAX_PR_LINES_CHANGED);
+	});
+
+	test("uses custom threshold when provided", () => {
+		const metadata = { additions: 500, deletions: 600 };
+		const result = isPRTooLarge(metadata, 1000);
+
+		expect(result.isTooLarge).toBe(true);
+		expect(result.totalLinesChanged).toBe(1100);
+		expect(result.threshold).toBe(1000);
+	});
+
+	test("returns true for PR just over the threshold (100,001 lines)", () => {
+		const metadata = { additions: 100000, deletions: 1 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(true);
+		expect(result.totalLinesChanged).toBe(100001);
+	});
+
+	test("handles PR with only additions", () => {
+		const metadata = { additions: 150000, deletions: 0 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(true);
+		expect(result.totalLinesChanged).toBe(150000);
+	});
+
+	test("handles PR with only deletions", () => {
+		const metadata = { additions: 0, deletions: 150000 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(true);
+		expect(result.totalLinesChanged).toBe(150000);
+	});
+
+	test("handles empty PR (no changes)", () => {
+		const metadata = { additions: 0, deletions: 0 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.isTooLarge).toBe(false);
+		expect(result.totalLinesChanged).toBe(0);
+	});
+
+	test("provides descriptive message when PR is too large", () => {
+		const metadata = { additions: 80000, deletions: 30000 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.message).toContain("exceeds maximum size limit");
+		expect(result.message).toContain("110,000");
+		expect(result.message).toContain("100,000");
+		expect(result.message).toContain("Skipping analysis");
+	});
+
+	test("provides descriptive message when PR is within limits", () => {
+		const metadata = { additions: 1000, deletions: 500 };
+		const result = isPRTooLarge(metadata);
+
+		expect(result.message).toContain("within limits");
+		expect(result.message).toContain("1,500");
+		expect(result.message).toContain("100,000");
+	});
+
+	test("works with PRMetadata object", () => {
+		// Can use a full PRMetadata object (only additions/deletions are used)
+		const fullMetadata: Pick<PRMetadata, "additions" | "deletions"> = {
+			additions: 50,
+			deletions: 25,
+		};
+		const result = isPRTooLarge(fullMetadata);
+
+		expect(result.isTooLarge).toBe(false);
+		expect(result.totalLinesChanged).toBe(75);
+	});
+});
+
+describe("PRSizeCheckResult type structure", () => {
+	test("result has all expected fields", () => {
+		const metadata = { additions: 100, deletions: 50 };
+		const result = isPRTooLarge(metadata);
+
+		const expectedFields: (keyof PRSizeCheckResult)[] = [
+			"isTooLarge",
+			"totalLinesChanged",
+			"threshold",
+			"message",
+		];
+
+		for (const field of expectedFields) {
+			expect(result).toHaveProperty(field);
 		}
 	});
 });

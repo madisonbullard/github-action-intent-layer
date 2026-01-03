@@ -3,6 +3,7 @@
  * Extracts metadata, commits, issues, and diff information from pull requests.
  */
 
+import { MAX_PR_LINES_CHANGED } from "../config/defaults";
 import type { GitHubClient } from "./client";
 
 /**
@@ -679,4 +680,49 @@ export async function extractPRDiffFromContext(
 		return null;
 	}
 	return extractPRDiff(client, pullNumber, options);
+}
+
+// ============================================================================
+// PR Size Validation
+// ============================================================================
+
+/**
+ * Result of checking if a PR is too large to process
+ */
+export interface PRSizeCheckResult {
+	/** Whether the PR exceeds the maximum allowed size */
+	isTooLarge: boolean;
+	/** Total lines changed (additions + deletions) */
+	totalLinesChanged: number;
+	/** The threshold that was used for comparison */
+	threshold: number;
+	/** Human-readable message describing the result */
+	message: string;
+}
+
+/**
+ * Check if a PR exceeds the maximum lines changed threshold.
+ * PRs exceeding 100,000 lines changed should be skipped entirely.
+ *
+ * @param metadata - PR metadata containing additions and deletions counts
+ * @param threshold - Optional custom threshold (defaults to MAX_PR_LINES_CHANGED = 100,000)
+ * @returns Object containing the check result and relevant details
+ */
+export function isPRTooLarge(
+	metadata: Pick<PRMetadata, "additions" | "deletions">,
+	threshold: number = MAX_PR_LINES_CHANGED,
+): PRSizeCheckResult {
+	const totalLinesChanged = metadata.additions + metadata.deletions;
+	const isTooLarge = totalLinesChanged > threshold;
+
+	const message = isTooLarge
+		? `PR exceeds maximum size limit: ${totalLinesChanged.toLocaleString()} lines changed (threshold: ${threshold.toLocaleString()}). Skipping analysis.`
+		: `PR size is within limits: ${totalLinesChanged.toLocaleString()} lines changed (threshold: ${threshold.toLocaleString()}).`;
+
+	return {
+		isTooLarge,
+		totalLinesChanged,
+		threshold,
+		message,
+	};
 }
