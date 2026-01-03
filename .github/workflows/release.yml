@@ -25,11 +25,10 @@ jobs:
         run: bun biome check --diagnostic-level=error
 
       - name: Run TypeScript typecheck
-        run: bun typecheck
+        run: bun run typecheck
 
       - name: Run tests
         run: bun test
-        working-directory: packages/github-action
 
   release:
     name: Release
@@ -49,11 +48,10 @@ jobs:
 
       - name: Build action
         run: bun run build
-        working-directory: packages/github-action
 
       - name: Verify dist output
         run: |
-          if [ ! -f packages/github-action/dist/index.js ]; then
+          if [ ! -f dist/index.js ]; then
             echo "Build failed: dist/index.js not found"
             exit 1
           fi
@@ -106,7 +104,7 @@ jobs:
       - name: Commit dist to release tag
         run: |
           # Add dist folder (it's gitignored but we want it in releases)
-          git add -f packages/github-action/dist/
+          git add -f dist/
           git commit -m "Build dist for release ${{ steps.version.outputs.tag }}" || echo "No changes to commit"
           git push origin HEAD:refs/tags/${{ steps.version.outputs.tag }} --force
 

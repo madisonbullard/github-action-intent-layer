@@ -1,33 +1,37 @@
 {
 	"$schema": "https://json.schemastore.org/package.json",
-	"name": "@madisonbullard/github-action-intent-layer",
+	"name": "github-action-intent-layer",
+	"version": "0.1.0-alpha.2",
 	"type": "module",
 	"private": true,
 	"packageManager": "bun@1.3.5",
+	"module": "index.ts",
 	"scripts": {
+		"build": "esbuild index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js",
 		"check": "bun biome check",
 		"prepare": "husky",
-		"typecheck": "bun turbo typecheck"
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
 	},
-	"workspaces": {
-		"catalog": {
-			"@tsconfig/bun": "1.0.10",
-			"@tsconfig/node22": "22.0.5",
-			"@types/bun": "1.3.5",
-			"@types/node": "^22.19",
-			"typescript": "5.9.3"
-		},
-		"packages": [
-			"packages/*"
-		]
+	"dependencies": {
+		"@actions/core": "2.0.1",
+		"@actions/github": "6.0.1",
+		"@opencode-ai/sdk": "1.0.224",
+		"diff": "8.0.2",
+		"ignore": "7.0.5",
+		"minimatch": "10.1.1",
+		"yaml": "2.8.2",
+		"zod": "4.3.4"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.3.10",
-		"@tsconfig/bun": "catalog:",
-		"@types/bun": "catalog:",
+		"@tsconfig/bun": "1.0.10",
+		"@types/bun": "1.3.5",
+		"@types/diff": "8.0.0",
+		"@types/node": "^22.19",
+		"esbuild": "^0.25.0",
 		"husky": "9.1.7",
 		"lint-staged": "16.2.7",
-		"turbo": "2.7.2",
-		"typescript": "catalog:"
+		"typescript": "5.9.3"
 	}
 }
