@@ -46,9 +46,11 @@ The existing `ci.yml` has:
 - [x] Delete `test/integration/propose-new-node.test.ts`
 - [x] Delete `test/integration/update-existing-node.test.ts`
 - [x] Run full test suite to verify nothing breaks
-- [ ] Check if `test/fixtures/no-intent-layer/` is still used by remaining tests
-  - If unused, delete the fixture directory
-  - If used, keep it
+- [x] Check if `test/fixtures/no-intent-layer/` is still used by remaining tests
+  - **Result: KEEP** - Used by `test/unit/setup.test.ts` for:
+    - Testing `listFixtures()` returns all fixtures
+    - Testing `loadFixture("no-intent-layer")` works correctly
+    - Testing `shouldSuggestRootAgentsMd()` returns true for repos without intent layer
 - [ ] Audit remaining tests for any dead code or unused fixtures
 
 ### Expected Outcome
