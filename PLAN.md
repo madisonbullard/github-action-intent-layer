@@ -283,12 +283,12 @@ prompts:
 - [x] 14.4 Configure GitHub Action marketplace metadata
 
 ### Phase 15: Documentation
-- [ ] 15.1 Write comprehensive README with examples
-- [ ] 15.2 Document all action inputs (including `mode`)
-- [ ] 15.3 Document `.intentlayerignore` format
-- [ ] 15.4 Document prompts configuration
-- [ ] 15.5 Add troubleshooting guide
-- [ ] 15.6 Create example workflows for common use cases
+- [x] 15.1 Write comprehensive README with examples
+- [x] 15.2 Document all action inputs (including `mode`)
+- [x] 15.3 Document `.intentlayerignore` format
+- [x] 15.4 Document prompts configuration
+- [x] 15.5 Add troubleshooting guide
+- [x] 15.6 Create example workflows for common use cases
 
 ---
 
