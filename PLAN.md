@@ -253,7 +253,7 @@ prompts:
 - [x] 11.1 Create separate branch for intent updates (`intent-layer/<pr-number>`)
 - [x] 11.2 Apply all suggested changes to branch (no approval checkboxes needed)
 - [x] 11.3 Open PR targeting original PR's branch
-- [ ] 11.4 Post a single comment on original PR linking to intent layer PR
+- [x] 11.4 Post a single comment on original PR linking to intent layer PR
 
 ### Phase 12: Edge Cases & Error Handling
 - [ ] 12.1 Handle no intent layer exists → suggest creating root `AGENTS.md` only

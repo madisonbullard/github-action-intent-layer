@@ -8,8 +8,11 @@ import {
 	findIntentLayerComments,
 	generateComment,
 	generateCommentMarker,
+	generateIntentLayerLinkComment,
 	hasCheckbox,
+	hasIntentLayerLinkMarker,
 	hasIntentLayerMarker,
+	INTENT_LAYER_LINK_MARKER,
 	INTENT_LAYER_MARKER_PREFIX,
 	INTENT_LAYER_MARKER_SUFFIX,
 	isCheckboxChecked,
@@ -18,6 +21,7 @@ import {
 	type PostedComment,
 	parseCommentMarker,
 	postCommentsForUpdates,
+	postIntentLayerLinkComment,
 	type ResolvedCommentResult,
 	resolveAndPostComments,
 	shouldSkipCheckboxProcessing,
@@ -889,5 +893,222 @@ describe("resolveAndPostComments", () => {
 		// Should resolve both intent comments
 		expect(result.resolvedComments.length).toBe(2);
 		expect(mockUpdateComment).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("generateIntentLayerLinkComment", () => {
+	test("generates comment with correct structure", () => {
+		const comment = generateIntentLayerLinkComment(
+			123,
+			"https://github.com/owner/repo/pull/123",
+			5,
+		);
+
+		expect(comment).toContain(INTENT_LAYER_LINK_MARKER);
+		expect(comment).toContain("## Intent Layer Updates Available");
+		expect(comment).toContain("**5 intent layer updates**");
+		expect(comment).toContain(
+			"[Review Intent Layer PR #123](https://github.com/owner/repo/pull/123)",
+		);
+	});
+
+	test("uses singular 'update' for count of 1", () => {
+		const comment = generateIntentLayerLinkComment(
+			42,
+			"https://github.com/owner/repo/pull/42",
+			1,
+		);
+
+		expect(comment).toContain("**1 intent layer update**");
+		expect(comment).not.toContain("updates**");
+	});
+
+	test("uses plural 'updates' for count > 1", () => {
+		const comment = generateIntentLayerLinkComment(
+			42,
+			"https://github.com/owner/repo/pull/42",
+			3,
+		);
+
+		expect(comment).toContain("**3 intent layer updates**");
+	});
+
+	test("includes PR number and URL in link", () => {
+		const prUrl = "https://github.com/test-org/test-repo/pull/999";
+		const comment = generateIntentLayerLinkComment(999, prUrl, 2);
+
+		expect(comment).toContain("[Review Intent Layer PR #999]");
+		expect(comment).toContain(`(${prUrl})`);
+	});
+});
+
+describe("hasIntentLayerLinkMarker", () => {
+	test("returns true for comment with link marker", () => {
+		const comment = generateIntentLayerLinkComment(
+			42,
+			"https://github.com/test",
+			1,
+		);
+		expect(hasIntentLayerLinkMarker(comment)).toBe(true);
+	});
+
+	test("returns false for comment without link marker", () => {
+		const comment = "Regular comment without marker";
+		expect(hasIntentLayerLinkMarker(comment)).toBe(false);
+	});
+
+	test("returns false for intent layer node comment (different marker)", () => {
+		const nodeComment = generateComment(
+			{
+				nodePath: "AGENTS.md",
+				action: "create",
+				reason: "Init",
+				suggestedContent: "# Root\n",
+			},
+			"abc123",
+		);
+		expect(hasIntentLayerLinkMarker(nodeComment)).toBe(false);
+	});
+});
+
+describe("postIntentLayerLinkComment", () => {
+	test("creates new comment when none exists", async () => {
+		const mockGetIssueComments = mock(async () => []);
+		const mockCreateComment = mock(async () => ({
+			id: 456,
+			html_url: "https://github.com/owner/repo/pull/1#issuecomment-456",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			createComment: mockCreateComment,
+		});
+
+		const result = await postIntentLayerLinkComment(
+			client,
+			1, // original PR number
+			123, // intent layer PR number
+			"https://github.com/owner/repo/pull/123",
+			5, // update count
+		);
+
+		expect(result.commentId).toBe(456);
+		expect(result.commentUrl).toBe(
+			"https://github.com/owner/repo/pull/1#issuecomment-456",
+		);
+		expect(mockCreateComment).toHaveBeenCalledTimes(1);
+	});
+
+	test("updates existing link comment when found", async () => {
+		const existingLinkComment = generateIntentLayerLinkComment(
+			100, // old PR number
+			"https://github.com/owner/repo/pull/100",
+			3,
+		);
+
+		const mockGetIssueComments = mock(async () => [
+			{
+				id: 789,
+				body: existingLinkComment,
+				html_url: "https://github.com/owner/repo/pull/1#issuecomment-789",
+			},
+		]);
+
+		const mockUpdateComment = mock(async () => ({}));
+		const mockCreateComment = mock(async () => ({
+			id: 999,
+			html_url: "https://github.com/test",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			updateComment: mockUpdateComment,
+			createComment: mockCreateComment,
+		});
+
+		const result = await postIntentLayerLinkComment(
+			client,
+			1,
+			200, // new intent layer PR number
+			"https://github.com/owner/repo/pull/200",
+			7,
+		);
+
+		// Should update existing comment, not create new
+		expect(result.commentId).toBe(789);
+		expect(mockUpdateComment).toHaveBeenCalledTimes(1);
+		expect(mockCreateComment).not.toHaveBeenCalled();
+	});
+
+	test("creates new comment when existing comments are not link comments", async () => {
+		const nodeComment = generateComment(
+			{
+				nodePath: "AGENTS.md",
+				action: "update",
+				reason: "Test",
+				currentContent: "old\n",
+				suggestedContent: "new\n",
+			},
+			"abc123",
+		);
+
+		const mockGetIssueComments = mock(async () => [
+			{ id: 1, body: nodeComment },
+			{ id: 2, body: "Regular comment" },
+		]);
+
+		const mockCreateComment = mock(async () => ({
+			id: 500,
+			html_url: "https://github.com/owner/repo/pull/1#issuecomment-500",
+		}));
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			createComment: mockCreateComment,
+		});
+
+		const result = await postIntentLayerLinkComment(
+			client,
+			1,
+			123,
+			"https://github.com/owner/repo/pull/123",
+			2,
+		);
+
+		expect(result.commentId).toBe(500);
+		expect(mockCreateComment).toHaveBeenCalledTimes(1);
+	});
+
+	test("comment body contains correct PR info", async () => {
+		let postedBody = "";
+		const mockGetIssueComments = mock(async () => []);
+		const mockCreateComment = mock(
+			async (_pullNumber: number, body: string) => {
+				postedBody = body;
+				return {
+					id: 100,
+					html_url: "https://github.com/test",
+				};
+			},
+		);
+
+		const client = createMockClient({
+			getIssueComments: mockGetIssueComments,
+			createComment: mockCreateComment,
+		});
+
+		await postIntentLayerLinkComment(
+			client,
+			42,
+			999,
+			"https://github.com/owner/repo/pull/999",
+			4,
+		);
+
+		expect(postedBody).toContain(INTENT_LAYER_LINK_MARKER);
+		expect(postedBody).toContain("**4 intent layer updates**");
+		expect(postedBody).toContain(
+			"[Review Intent Layer PR #999](https://github.com/owner/repo/pull/999)",
+		);
 	});
 });
