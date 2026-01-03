@@ -237,7 +237,7 @@ prompts:
 - [x] 9.2 Implement `[INTENT:UPDATE]` commit creation
 - [x] 9.3 Implement `[INTENT:REVERT]` commit (file-level revert: restore file to pre-commit state using `appliedCommit` parent)
 - [x] 9.4 Handle symlink creation in commits (create both files, one as symlink, respects `symlink_source`)
-- [ ] 9.5 Write unit tests for commit operations
+- [x] 9.5 Write unit tests for commit operations
 
 ### Phase 10: Checkbox Toggle Handler (`mode: checkbox-handler`)
 - [ ] 10.1 Implement 1.5s debounce (wait, re-fetch comment, verify state unchanged)
