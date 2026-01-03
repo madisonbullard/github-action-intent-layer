@@ -1,0 +1,9 @@
+{
+	"description": "Repository with basic AGENTS.md at root - tests update existing node",
+	"expectedIntentFiles": ["AGENTS.md"],
+	"expectedSymlinks": [],
+	"expectedBehavior": {
+		"shouldSuggestRootAgentsMd": false,
+		"canUpdateExistingNode": true
+	}
+}

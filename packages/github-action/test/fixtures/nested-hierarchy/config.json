@@ -1,0 +1,27 @@
+{
+	"description": "Multi-level nested hierarchy - tests hierarchy traversal and node coverage",
+	"expectedIntentFiles": [
+		"AGENTS.md",
+		"packages/api/AGENTS.md",
+		"packages/core/AGENTS.md"
+	],
+	"expectedSymlinks": [],
+	"expectedHierarchy": {
+		"roots": ["AGENTS.md"],
+		"children": {
+			"AGENTS.md": ["packages/api/AGENTS.md", "packages/core/AGENTS.md"]
+		}
+	},
+	"expectedCoverage": {
+		"AGENTS.md": ["README.md", "package.json", "tsconfig.json"],
+		"packages/api/AGENTS.md": [
+			"packages/api/package.json",
+			"packages/api/src/handler.ts",
+			"packages/api/src/routes/users.ts"
+		],
+		"packages/core/AGENTS.md": [
+			"packages/core/package.json",
+			"packages/core/src/utils.ts"
+		]
+	}
+}

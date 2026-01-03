@@ -1,0 +1,35 @@
+{
+	"sha": "tree-no-intent-001",
+	"tree": [
+		{
+			"path": "README.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-readme-001"
+		},
+		{
+			"path": "package.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-package-001"
+		},
+		{
+			"path": "src/index.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-src-index-001"
+		},
+		{
+			"path": "src/utils/helper.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-src-utils-helper-001"
+		},
+		{
+			"path": "tsconfig.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-tsconfig-001"
+		}
+	]
+}

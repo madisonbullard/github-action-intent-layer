@@ -1,0 +1,9 @@
+{
+	"description": "Repository without any intent layer files - tests initialization suggestion",
+	"expectedIntentFiles": [],
+	"expectedSymlinks": [],
+	"expectedBehavior": {
+		"shouldSuggestRootAgentsMd": true,
+		"shouldSuggestHierarchy": false
+	}
+}

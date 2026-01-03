@@ -266,7 +266,7 @@ prompts:
 - [x] 12.8 Fail action if `symlink: true` on Windows (unsupported platform)
 
 ### Phase 13: Integration Testing
-- [ ] 13.1 Create test repository with various intent layer configs
+- [x] 13.1 Create test repository with various intent layer configs
 - [ ] 13.2 Integration test: no intent layer → initialization suggestion
 - [ ] 13.3 Integration test: update existing node
 - [ ] 13.4 Integration test: propose new node (`new_nodes: true`)

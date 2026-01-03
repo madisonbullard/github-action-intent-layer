@@ -1,0 +1,9 @@
+{
+	"README.md": "# Test Repository\n\nA test repository with basic AGENTS.md structure.",
+	"AGENTS.md": "# AGENTS.md\n\n## Build & Development\n\n- Use `npm run build` to build the project\n- Use `npm test` to run tests\n\n## Project Structure\n\nThis is a simple TypeScript project.",
+	"package.json": "{\n  \"name\": \"test-repo\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"build\": \"tsc\",\n    \"test\": \"jest\"\n  }\n}",
+	"src/index.ts": "export function main() {\n  console.log('Hello, world!');\n}\n",
+	"src/utils/helper.ts": "export function helper(value: string): string {\n  return value.trim();\n}\n",
+	"src/api/handler.ts": "export async function handleRequest(req: Request): Promise<Response> {\n  return new Response('OK');\n}\n",
+	"tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"ESNext\"\n  }\n}"
+}

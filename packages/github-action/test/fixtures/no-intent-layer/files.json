@@ -1,0 +1,7 @@
+{
+	"README.md": "# Test Repository\n\nThis is a test repository without any intent layer files.",
+	"package.json": "{\n  \"name\": \"test-repo\",\n  \"version\": \"1.0.0\"\n}",
+	"src/index.ts": "export function main() {\n  console.log('Hello, world!');\n}\n",
+	"src/utils/helper.ts": "export function helper(value: string): string {\n  return value.trim();\n}\n",
+	"tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"ESNext\"\n  }\n}"
+}

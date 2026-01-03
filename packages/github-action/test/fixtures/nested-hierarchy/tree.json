@@ -1,0 +1,71 @@
+{
+	"sha": "tree-nested-hierarchy-001",
+	"tree": [
+		{
+			"path": "AGENTS.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-root-agents-003"
+		},
+		{
+			"path": "README.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-readme-003"
+		},
+		{
+			"path": "package.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-package-003"
+		},
+		{
+			"path": "packages/api/AGENTS.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-api-agents-003"
+		},
+		{
+			"path": "packages/api/package.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-api-package-003"
+		},
+		{
+			"path": "packages/api/src/handler.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-api-src-handler-003"
+		},
+		{
+			"path": "packages/api/src/routes/users.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-api-src-routes-users-003"
+		},
+		{
+			"path": "packages/core/AGENTS.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-core-agents-003"
+		},
+		{
+			"path": "packages/core/package.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-core-package-003"
+		},
+		{
+			"path": "packages/core/src/utils.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-core-src-utils-003"
+		},
+		{
+			"path": "tsconfig.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-tsconfig-003"
+		}
+	]
+}

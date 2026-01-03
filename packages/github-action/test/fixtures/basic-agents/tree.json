@@ -1,0 +1,47 @@
+{
+	"sha": "tree-basic-agents-001",
+	"tree": [
+		{
+			"path": "AGENTS.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-agents-001"
+		},
+		{
+			"path": "README.md",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-readme-002"
+		},
+		{
+			"path": "package.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-package-002"
+		},
+		{
+			"path": "src/index.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-src-index-002"
+		},
+		{
+			"path": "src/utils/helper.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-src-utils-helper-002"
+		},
+		{
+			"path": "src/api/handler.ts",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-src-api-handler-002"
+		},
+		{
+			"path": "tsconfig.json",
+			"mode": "100644",
+			"type": "blob",
+			"sha": "blob-tsconfig-002"
+		}
+	]
+}

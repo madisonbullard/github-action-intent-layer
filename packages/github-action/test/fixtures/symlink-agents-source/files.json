@@ -1,0 +1,7 @@
+{
+	"README.md": "# Test Repository\n\nRepository with AGENTS.md as symlink source.",
+	"AGENTS.md": "# AGENTS.md\n\n## Build & Development\n\n- Use `npm run build` to build the project\n- Use `npm test` to run tests\n\n## Project Structure\n\nThis project uses AGENTS.md as the source of truth.",
+	"CLAUDE.md": "-> AGENTS.md",
+	"package.json": "{\n  \"name\": \"test-repo\",\n  \"version\": \"1.0.0\"\n}",
+	"src/index.ts": "export function main() {\n  console.log('Hello, world!');\n}\n"
+}

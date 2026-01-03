@@ -1,0 +1,13 @@
+{
+	"README.md": "# Monorepo Project\n\nA multi-package monorepo with nested intent layer.",
+	"AGENTS.md": "# AGENTS.md\n\n## Build & Development\n\n- Use `npm run build` to build all packages\n- Use `npm test` to run all tests\n\n## Project Structure\n\nThis is a monorepo with multiple packages.",
+	"package.json": "{\n  \"name\": \"monorepo-root\",\n  \"version\": \"1.0.0\",\n  \"workspaces\": [\"packages/*\"]\n}",
+	"packages/api/AGENTS.md": "# API Package\n\n## Purpose\n\nREST API implementation.\n\n## Key Files\n\n- `src/handler.ts` - Main request handler\n- `src/routes/` - Route definitions",
+	"packages/api/package.json": "{\n  \"name\": \"@monorepo/api\",\n  \"version\": \"1.0.0\"\n}",
+	"packages/api/src/handler.ts": "export async function handleRequest(req: Request): Promise<Response> {\n  return new Response('OK');\n}\n",
+	"packages/api/src/routes/users.ts": "export const usersRoute = '/users';\n",
+	"packages/core/AGENTS.md": "# Core Package\n\n## Purpose\n\nShared utilities and business logic.\n\n## Key Files\n\n- `src/utils.ts` - Utility functions",
+	"packages/core/package.json": "{\n  \"name\": \"@monorepo/core\",\n  \"version\": \"1.0.0\"\n}",
+	"packages/core/src/utils.ts": "export function formatDate(date: Date): string {\n  return date.toISOString();\n}\n",
+	"tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"ESNext\"\n  }\n}"
+}
