@@ -11,6 +11,7 @@ import type { IntentUpdate } from "../opencode/output-schema.js";
 import type { GitHubClient } from "./client.js";
 import {
 	type CommentMarkerData,
+	clearCommentMarkerAppliedCommit,
 	isCheckboxChecked,
 	markCommentAsResolved,
 	parseCommentMarker,
@@ -19,9 +20,11 @@ import {
 import {
 	type CommitResult,
 	createIntentAddCommit,
+	createIntentRevertCommit,
 	createIntentUpdateCommit,
 	getFileSha,
 	type IntentCommitOptions,
+	type RevertCommitOptions,
 } from "./commits.js";
 
 /**
@@ -422,6 +425,95 @@ export async function handleCheckedCheckbox(
 		commentBody,
 		commitResult.sha,
 	);
+	await client.updateComment(commentId, updatedBody);
+
+	return {
+		success: true,
+		commitResult,
+	};
+}
+
+/**
+ * Options for handling an unchecked checkbox.
+ */
+export interface HandleUncheckedCheckboxOptions {
+	/** Branch to commit to (typically the PR branch) */
+	branch: string;
+	/** Whether symlinks are enabled */
+	symlink?: boolean;
+	/** Which file is the source of truth when symlinking */
+	symlinkSource?: SymlinkSource;
+}
+
+/**
+ * Result of handling an unchecked checkbox.
+ */
+export interface HandleUncheckedCheckboxResult {
+	/** Whether the operation succeeded */
+	success: boolean;
+	/** The commit result if a revert was performed */
+	commitResult?: CommitResult;
+	/** Whether the operation was skipped (no appliedCommit to revert) */
+	skipped?: boolean;
+	/** Error message if the operation failed */
+	error?: string;
+}
+
+/**
+ * Handle an unchecked checkbox in an intent layer comment.
+ *
+ * This function:
+ * 1. If no appliedCommit exists, does nothing (nothing to revert)
+ * 2. If appliedCommit exists, performs a file-level revert to restore the file
+ *    to its pre-commit state (before the intent change was applied)
+ * 3. Updates the comment marker to clear the appliedCommit
+ *
+ * @param client - GitHub client for API operations
+ * @param commentId - ID of the comment being processed
+ * @param commentBody - Current body of the comment
+ * @param markerData - Parsed marker data from the comment
+ * @param options - Revert options (branch, symlink settings)
+ * @returns Result of the operation
+ */
+export async function handleUncheckedCheckbox(
+	client: GitHubClient,
+	commentId: number,
+	commentBody: string,
+	markerData: CommentMarkerData,
+	options: HandleUncheckedCheckboxOptions,
+): Promise<HandleUncheckedCheckboxResult> {
+	// Step 1: Check if there's an appliedCommit to revert
+	if (!markerData.appliedCommit) {
+		// No commit was ever applied - nothing to revert
+		return {
+			success: true,
+			skipped: true,
+		};
+	}
+
+	// Step 2: Perform the file-level revert
+	const revertOptions: RevertCommitOptions = {
+		branch: options.branch,
+		appliedCommit: markerData.appliedCommit,
+		nodePath: markerData.nodePath,
+		otherNodePath: markerData.otherNodePath,
+		reason: "Reverted via checkbox",
+		symlink: options.symlink,
+		symlinkSource: options.symlinkSource,
+	};
+
+	let commitResult: CommitResult;
+	try {
+		commitResult = await createIntentRevertCommit(client, revertOptions);
+	} catch (error) {
+		return {
+			success: false,
+			error: `Failed to create revert commit: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+
+	// Step 3: Update the comment marker to clear the appliedCommit
+	const updatedBody = clearCommentMarkerAppliedCommit(commentBody);
 	await client.updateComment(commentId, updatedBody);
 
 	return {

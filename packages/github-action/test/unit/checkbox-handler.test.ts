@@ -3,6 +3,7 @@ import {
 	DEFAULT_DEBOUNCE_DELAY_MS,
 	debounceCheckboxToggle,
 	handleCheckedCheckbox,
+	handleUncheckedCheckbox,
 	reconstructIntentUpdateFromComment,
 	sleep,
 	validateCheckboxEvent,
@@ -771,5 +772,272 @@ ${suggestedContent}
 		// In non-symlink mode with otherNodePath, both files should be created
 		expect(createOrUpdateFileCalls.length).toBeGreaterThanOrEqual(1);
 		expect(createOrUpdateFileCalls[0]?.branch).toBe("feature-branch");
+	});
+});
+
+describe("handleUncheckedCheckbox", () => {
+	// Helper to create a comment body with full structure
+	function createFullCommentBody(options: {
+		nodePath?: string;
+		otherNodePath?: string;
+		headSha?: string;
+		appliedCommit?: string;
+		suggestedContent?: string;
+	}): string {
+		const nodePath = options.nodePath ?? "packages/api/AGENTS.md";
+		const headSha = options.headSha ?? "abc123";
+		const suggestedContent =
+			options.suggestedContent ?? "# API Package\n\nDefault content.";
+
+		const parts = [`node=${encodeURIComponent(nodePath)}`];
+		if (options.otherNodePath) {
+			parts.push(`otherNode=${encodeURIComponent(options.otherNodePath)}`);
+		}
+		parts.push(`appliedCommit=${options.appliedCommit ?? ""}`);
+		parts.push(`headSha=${headSha}`);
+
+		return `${INTENT_LAYER_MARKER_PREFIX} ${parts.join(" ")} ${INTENT_LAYER_MARKER_SUFFIX}
+
+### Suggested Content
+
+\`\`\`markdown
+${suggestedContent}
+\`\`\`
+
+---
+
+- [ ] Apply this change`;
+	}
+
+	test("skips when no appliedCommit exists", async () => {
+		const commentBody = createFullCommentBody({
+			headSha: "current-sha",
+			appliedCommit: "", // No applied commit
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			headSha: "current-sha",
+			appliedCommit: undefined, // No applied commit
+		};
+
+		const mockClient = {} as unknown as GitHubClient;
+
+		const result = await handleUncheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.skipped).toBe(true);
+		expect(result.commitResult).toBeUndefined();
+	});
+
+	test("performs revert when appliedCommit exists", async () => {
+		const commentBody = createFullCommentBody({
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		};
+
+		let updatedCommentBody = "";
+		const mockClient = {
+			getCommit: mock(() =>
+				Promise.resolve({
+					parents: [{ sha: "parent-sha" }],
+				}),
+			),
+			getFileContent: mock((path: string, ref: string) => {
+				// Return content for parent commit (file existed before)
+				if (ref === "parent-sha") {
+					return Promise.resolve({
+						sha: "old-file-sha",
+						content: Buffer.from("# Previous Content").toString("base64"),
+					});
+				}
+				// Return current file content
+				return Promise.resolve({
+					sha: "current-file-sha",
+					content: Buffer.from("# Current Content").toString("base64"),
+				});
+			}),
+			createOrUpdateFile: mock(() =>
+				Promise.resolve({
+					commit: {
+						sha: "revert-commit-sha",
+						html_url: "https://github.com/test/repo/commit/revert-commit-sha",
+					},
+				}),
+			),
+			updateComment: mock((id: number, body: string) => {
+				updatedCommentBody = body;
+				return Promise.resolve({ id, body });
+			}),
+		} as unknown as GitHubClient;
+
+		const result = await handleUncheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.skipped).toBeUndefined();
+		expect(result.commitResult).toBeDefined();
+		expect(result.commitResult?.sha).toBe("revert-commit-sha");
+		expect(result.commitResult?.message).toContain("[INTENT:REVERT]");
+		// Verify the comment was updated to clear appliedCommit
+		expect(updatedCommentBody).toContain("appliedCommit=");
+		expect(updatedCommentBody).not.toContain(
+			"appliedCommit=applied-commit-sha",
+		);
+	});
+
+	test("deletes file when it didn't exist before the applied commit", async () => {
+		const commentBody = createFullCommentBody({
+			nodePath: "packages/new/AGENTS.md",
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		});
+		const markerData = {
+			nodePath: "packages/new/AGENTS.md",
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		};
+
+		let deletedFile = "";
+		const mockClient = {
+			getCommit: mock(() =>
+				Promise.resolve({
+					parents: [{ sha: "parent-sha" }],
+				}),
+			),
+			getFileContent: mock((path: string, ref: string) => {
+				// File didn't exist before the applied commit
+				if (ref === "parent-sha") {
+					const error = new Error("Not Found") as Error & { status: number };
+					error.status = 404;
+					return Promise.reject(error);
+				}
+				// Current file exists
+				return Promise.resolve({
+					sha: "current-file-sha",
+					content: Buffer.from("# New Content").toString("base64"),
+				});
+			}),
+			deleteFile: mock((path: string) => {
+				deletedFile = path;
+				return Promise.resolve({
+					commit: {
+						sha: "delete-commit-sha",
+						html_url: "https://github.com/test/repo/commit/delete-commit-sha",
+					},
+				});
+			}),
+			updateComment: mock(() => Promise.resolve({ id: 123, body: "" })),
+		} as unknown as GitHubClient;
+
+		const result = await handleUncheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.commitResult).toBeDefined();
+		expect(result.commitResult?.sha).toBe("delete-commit-sha");
+		expect(deletedFile).toBe("packages/new/AGENTS.md");
+	});
+
+	test("handles revert errors gracefully", async () => {
+		const commentBody = createFullCommentBody({
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		};
+
+		const mockClient = {
+			getCommit: mock(() => Promise.reject(new Error("Commit not found"))),
+		} as unknown as GitHubClient;
+
+		const result = await handleUncheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("Failed to create revert commit");
+		expect(result.error).toContain("Commit not found");
+	});
+
+	test("reverts both files when otherNodePath is present", async () => {
+		const commentBody = createFullCommentBody({
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		});
+		const markerData = {
+			nodePath: "packages/api/AGENTS.md",
+			otherNodePath: "packages/api/CLAUDE.md",
+			headSha: "current-sha",
+			appliedCommit: "applied-commit-sha",
+		};
+
+		const updatedFiles: string[] = [];
+		const mockClient = {
+			getCommit: mock(() =>
+				Promise.resolve({
+					parents: [{ sha: "parent-sha" }],
+				}),
+			),
+			getFileContent: mock((path: string, ref: string) => {
+				// Both files existed before
+				return Promise.resolve({
+					sha: `${path}-sha`,
+					content: Buffer.from(`# Previous ${path}`).toString("base64"),
+				});
+			}),
+			createOrUpdateFile: mock((path: string) => {
+				updatedFiles.push(path);
+				return Promise.resolve({
+					commit: {
+						sha: "revert-commit-sha",
+						html_url: "https://github.com/test/repo/commit/revert-commit-sha",
+					},
+				});
+			}),
+			updateComment: mock(() => Promise.resolve({ id: 123, body: "" })),
+		} as unknown as GitHubClient;
+
+		const result = await handleUncheckedCheckbox(
+			mockClient,
+			123,
+			commentBody,
+			markerData,
+			{ branch: "feature-branch" },
+		);
+
+		expect(result.success).toBe(true);
+		// Both files should be reverted
+		expect(updatedFiles).toContain("packages/api/AGENTS.md");
+		expect(updatedFiles).toContain("packages/api/CLAUDE.md");
 	});
 });
