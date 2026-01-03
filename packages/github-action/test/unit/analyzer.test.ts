@@ -3,6 +3,7 @@ import type { PRChangedFile, PRDiff } from "../../src/github/context";
 import {
 	determineNodesNeedingUpdate,
 	filterIgnoredFiles,
+	filterSemanticBoundariesForInitialization,
 	generateUpdateReason,
 	getAffectedDirectories,
 	getAffectedNodes,
@@ -1540,5 +1541,170 @@ describe("getAffectedDirectories", () => {
 			"packages/api/handlers",
 			"packages/api/routes",
 		]);
+	});
+});
+
+describe("filterSemanticBoundariesForInitialization", () => {
+	test("returns empty result when no candidates", () => {
+		const boundaries = {
+			candidates: [],
+			totalCandidates: 0,
+			hasCandidates: false,
+			newNodesAllowed: true,
+		};
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"agents",
+		);
+
+		expect(result.hasCandidates).toBe(false);
+		expect(result.candidates).toHaveLength(0);
+	});
+
+	test("returns empty result when new nodes not allowed", () => {
+		const boundaries = {
+			candidates: [],
+			totalCandidates: 0,
+			hasCandidates: false,
+			newNodesAllowed: false,
+		};
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"agents",
+		);
+
+		expect(result.newNodesAllowed).toBe(false);
+	});
+
+	test("keeps only root candidate when root candidate exists", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([
+			// Root-level files
+			createChangedFile("index.ts", "added", 100, 0),
+			createChangedFile("config.ts", "added", 50, 0),
+			createChangedFile("utils.ts", "added", 40, 0),
+			// Files in src/
+			createChangedFile("src/app.ts", "added", 100, 0),
+			createChangedFile("src/main.ts", "added", 50, 0),
+			createChangedFile("src/utils.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const boundaries = identifySemanticBoundaries(mapping, true, "agents");
+
+		// Should have multiple candidates (root + src/)
+		expect(boundaries.candidates.length).toBeGreaterThan(1);
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"agents",
+		);
+
+		// Should only have root candidate
+		expect(result.candidates).toHaveLength(1);
+		expect(result.candidates[0]!.directory).toBe("");
+		expect(result.candidates[0]!.suggestedNodePath).toBe("AGENTS.md");
+	});
+
+	test("creates root candidate when only subdirectory candidates exist", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		// Only files in subdirectories, no root-level files
+		const diff = createDiff([
+			createChangedFile("packages/api/handler.ts", "added", 100, 0),
+			createChangedFile("packages/api/routes.ts", "added", 50, 0),
+			createChangedFile("packages/api/utils.ts", "added", 40, 0),
+			createChangedFile("packages/web/app.ts", "added", 100, 0),
+			createChangedFile("packages/web/main.ts", "added", 50, 0),
+			createChangedFile("packages/web/styles.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const boundaries = identifySemanticBoundaries(mapping, true, "agents");
+
+		// Original should have subdirectory candidates but no root
+		const hasRootCandidate = boundaries.candidates.some(
+			(c) => c.directory === "",
+		);
+		expect(hasRootCandidate).toBe(false);
+		expect(boundaries.candidates.length).toBeGreaterThan(0);
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"agents",
+		);
+
+		// Should create a root candidate aggregating all files
+		expect(result.candidates).toHaveLength(1);
+		expect(result.candidates[0]!.directory).toBe("");
+		expect(result.candidates[0]!.suggestedNodePath).toBe("AGENTS.md");
+		expect(result.candidates[0]!.uncoveredFiles).toHaveLength(6);
+		expect(result.candidates[0]!.confidence).toBe(1.0);
+		expect(result.candidates[0]!.reason).toContain("Initialize intent layer");
+	});
+
+	test("uses CLAUDE.md when fileType is claude", () => {
+		const hierarchy = buildHierarchy([], "claude");
+		const diff = createDiff([
+			createChangedFile("src/index.ts", "added", 100, 0),
+			createChangedFile("src/utils.ts", "added", 50, 0),
+			createChangedFile("src/helpers.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const boundaries = identifySemanticBoundaries(mapping, true, "claude");
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"claude",
+		);
+
+		expect(result.candidates[0]!.suggestedNodePath).toBe("CLAUDE.md");
+	});
+
+	test("calculates correct change summary for aggregated files", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([
+			createChangedFile("packages/api/new.ts", "added", 50, 0),
+			createChangedFile("packages/api/modified.ts", "modified", 20, 10),
+			createChangedFile("packages/api/another.ts", "added", 30, 0),
+			createChangedFile("packages/web/app.ts", "modified", 40, 20),
+			createChangedFile("packages/web/main.ts", "added", 60, 0),
+			createChangedFile("packages/web/deleted.ts", "removed", 0, 50),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const boundaries = identifySemanticBoundaries(mapping, true, "agents");
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"agents",
+		);
+
+		expect(result.candidates[0]!.changeSummary.filesAdded).toBe(3);
+		expect(result.candidates[0]!.changeSummary.filesModified).toBe(2);
+		expect(result.candidates[0]!.changeSummary.filesRemoved).toBe(1);
+		expect(result.candidates[0]!.changeSummary.totalAdditions).toBe(200);
+		expect(result.candidates[0]!.changeSummary.totalDeletions).toBe(80);
+	});
+
+	test("preserves root candidate properties when root exists", () => {
+		const hierarchy = buildHierarchy([], "agents");
+		const diff = createDiff([
+			// Root-level files with specific properties
+			createChangedFile("index.ts", "added", 100, 0),
+			createChangedFile("config.ts", "added", 50, 0),
+			createChangedFile("utils.ts", "added", 40, 0),
+		]);
+		const mapping = mapChangedFilesToNodes(diff, hierarchy);
+		const boundaries = identifySemanticBoundaries(mapping, true, "agents");
+
+		// Find the original root candidate
+		const originalRoot = boundaries.candidates.find((c) => c.directory === "");
+
+		const result = filterSemanticBoundariesForInitialization(
+			boundaries,
+			"agents",
+		);
+
+		// Should preserve the original root candidate
+		expect(result.candidates[0]).toEqual(originalRoot);
 	});
 });

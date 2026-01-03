@@ -1042,3 +1042,127 @@ export function getAffectedDirectories(
 
 	return Array.from(directories).sort();
 }
+
+/**
+ * Filter semantic boundary results for initialization scenarios.
+ *
+ * When no intent layer exists (initialization), we should only suggest creating
+ * the root AGENTS.md/CLAUDE.md file, not child nodes. This function filters the
+ * semantic boundaries to only include the root node.
+ *
+ * Per PLAN.md task 12.1 and section "16. Initial State":
+ * "When no intent layer exists: Only suggest creating root AGENTS.md"
+ *
+ * @param boundaries - The original semantic boundary result
+ * @param fileType - The type of intent file being created ('agents' or 'claude')
+ * @returns Filtered semantic boundary result with only root node (if applicable)
+ */
+export function filterSemanticBoundariesForInitialization(
+	boundaries: SemanticBoundaryResult,
+	fileType: "agents" | "claude" = "agents",
+): SemanticBoundaryResult {
+	// If no candidates or new nodes not allowed, return as-is
+	if (!boundaries.hasCandidates || !boundaries.newNodesAllowed) {
+		return boundaries;
+	}
+
+	const intentFileName = fileType === "agents" ? "AGENTS.md" : "CLAUDE.md";
+
+	// Find the root candidate (directory is empty string, suggestedNodePath is just the filename)
+	const rootCandidate = boundaries.candidates.find(
+		(c) => c.directory === "" && c.suggestedNodePath === intentFileName,
+	);
+
+	// If there's a root candidate, return only that one
+	if (rootCandidate) {
+		return {
+			candidates: [rootCandidate],
+			totalCandidates: 1,
+			hasCandidates: true,
+			newNodesAllowed: true,
+		};
+	}
+
+	// If no root candidate exists, create one that aggregates all uncovered files
+	// This ensures we suggest the root AGENTS.md even if files are in subdirectories
+	const allUncoveredFiles = boundaries.candidates.flatMap(
+		(c) => c.uncoveredFiles,
+	);
+
+	if (allUncoveredFiles.length === 0) {
+		return {
+			candidates: [],
+			totalCandidates: 0,
+			hasCandidates: false,
+			newNodesAllowed: true,
+		};
+	}
+
+	// Calculate aggregate change summary
+	const changeSummary = calculateInitializationChangeSummary(allUncoveredFiles);
+
+	const rootInitCandidate: SemanticBoundaryCandidate = {
+		directory: "",
+		suggestedNodePath: intentFileName,
+		uncoveredFiles: allUncoveredFiles,
+		changeSummary,
+		reason: `Initialize intent layer: ${allUncoveredFiles.length} files in repository need documentation`,
+		confidence: 1.0, // High confidence for initialization
+	};
+
+	return {
+		candidates: [rootInitCandidate],
+		totalCandidates: 1,
+		hasCandidates: true,
+		newNodesAllowed: true,
+	};
+}
+
+/**
+ * Calculate change summary for initialization scenario.
+ * Helper function for filterSemanticBoundariesForInitialization.
+ */
+function calculateInitializationChangeSummary(
+	files: ChangedFileCoverage[],
+): NodeChangeSummary {
+	let filesAdded = 0;
+	let filesModified = 0;
+	let filesRemoved = 0;
+	let filesRenamed = 0;
+	let totalAdditions = 0;
+	let totalDeletions = 0;
+
+	for (const coverage of files) {
+		const file = coverage.file;
+		totalAdditions += file.additions;
+		totalDeletions += file.deletions;
+
+		switch (file.status) {
+			case "added":
+				filesAdded++;
+				break;
+			case "modified":
+				filesModified++;
+				break;
+			case "removed":
+				filesRemoved++;
+				break;
+			case "renamed":
+				filesRenamed++;
+				break;
+			case "copied":
+			case "changed":
+				filesModified++;
+				break;
+		}
+	}
+
+	return {
+		filesAdded,
+		filesModified,
+		filesRemoved,
+		filesRenamed,
+		totalAdditions,
+		totalDeletions,
+	};
+}

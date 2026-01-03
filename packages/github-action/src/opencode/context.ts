@@ -29,6 +29,7 @@ import {
 import {
 	type ChangedFilesMappingResult,
 	determineNodesNeedingUpdate,
+	filterSemanticBoundariesForInitialization,
 	identifySemanticBoundaries,
 	mapChangedFilesToNodes,
 	type NodesNeedingUpdateResult,
@@ -196,11 +197,25 @@ export async function buildAnalysisContextPayload(
 		const parentNodesReview = reviewParentNodes(nodesNeedingUpdate);
 
 		// Identify potential new semantic boundaries
-		const semanticBoundaries = identifySemanticBoundaries(
+		let semanticBoundaries = identifySemanticBoundaries(
 			changedFilesMapping,
 			config.newNodesAllowed,
 			primaryFileType,
 		);
+
+		// Check if this is an initialization scenario (no intent layer exists)
+		const intentLayerExists =
+			agentsHierarchy.nodesByPath.size > 0 ||
+			claudeHierarchy.nodesByPath.size > 0;
+
+		// For initialization, filter to only suggest root AGENTS.md/CLAUDE.md
+		// Per PLAN.md: "When no intent layer exists: Only suggest creating root AGENTS.md"
+		if (!intentLayerExists) {
+			semanticBoundaries = filterSemanticBoundariesForInitialization(
+				semanticBoundaries,
+				primaryFileType,
+			);
+		}
 
 		// Build intent context with file content
 		const intentContext = await buildIntentContext(
@@ -449,11 +464,25 @@ export async function buildAnalysisContextPayloadFromPRContext(
 	const parentNodesReview = reviewParentNodes(nodesNeedingUpdate);
 
 	// Identify potential new semantic boundaries
-	const semanticBoundaries = identifySemanticBoundaries(
+	let semanticBoundaries = identifySemanticBoundaries(
 		changedFilesMapping,
 		config.newNodesAllowed,
 		primaryFileType,
 	);
+
+	// Check if this is an initialization scenario (no intent layer exists)
+	const intentLayerExists =
+		agentsHierarchy.nodesByPath.size > 0 ||
+		claudeHierarchy.nodesByPath.size > 0;
+
+	// For initialization, filter to only suggest root AGENTS.md/CLAUDE.md
+	// Per PLAN.md: "When no intent layer exists: Only suggest creating root AGENTS.md"
+	if (!intentLayerExists) {
+		semanticBoundaries = filterSemanticBoundariesForInitialization(
+			semanticBoundaries,
+			primaryFileType,
+		);
+	}
 
 	// Build intent context with file content
 	const intentContext = await buildIntentContext(
