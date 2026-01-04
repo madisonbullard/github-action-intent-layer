@@ -1,5 +1,11 @@
 # Test Suite Improvement Plan
 
+## Useful links
+- **Intent Layer concept**: https://www.intent-systems.com/learn/intent-layer
+- **OpenCode SDK**: https://opencode.ai/docs/sdk/
+- **OpenCode Custom Tools**: https://opencode.ai/docs/custom-tools/
+- **OpenCode Github App source**: https://raw.githubusercontent.com/anomalyco/opencode/refs/heads/dev/github/index.ts
+
 ## Current State Analysis
 
 ### Integration Tests (8 files, ~4,765 lines)
@@ -210,8 +216,8 @@ We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/P
 - [x] Add `workflow_dispatch` trigger with boolean inputs:
   - `run_llm_tests` (default: false)
   - `run_github_tests` (default: false)
-- [ ] Rename `test` job to `test-unit`, change command to `bun test test/unit/`
-- [ ] Add `test-integration` job running `bun test test/integration/`
+- [x] Rename `test` job to `test-unit`, change command to `bun test test/unit/`
+- [x] Add `test-integration` job running `bun test test/integration/`
 - [ ] Add conditional `test-github-real` job:
   ```yaml
   test-github-real:
@@ -259,7 +265,7 @@ We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/P
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   ```
-- [ ] Update `build` job `needs` to: `[lint, typecheck, test-unit, test-integration]`
+- [x] Update `build` job `needs` to: `[lint, typecheck, test-unit, test-integration]`
 
 ---
 
