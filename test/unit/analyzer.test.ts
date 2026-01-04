@@ -636,7 +636,7 @@ describe("determineNodesNeedingUpdate", () => {
 		const result = determineNodesNeedingUpdate(mapping);
 
 		expect(result.candidates).toHaveLength(1);
-		const summary = result.candidates[0]?.changeSummary;
+		const summary = result.candidates[0]!.changeSummary;
 		expect(summary.filesAdded).toBe(1);
 		expect(summary.filesModified).toBe(1);
 		expect(summary.filesRemoved).toBe(1);
@@ -1401,8 +1401,8 @@ describe("identifySemanticBoundaries", () => {
 
 		expect(componentsCandidate).toBeDefined();
 		expect(customCandidate).toBeDefined();
-		expect(componentsCandidate?.confidence).toBeGreaterThan(
-			customCandidate?.confidence,
+		expect(componentsCandidate!.confidence).toBeGreaterThan(
+			customCandidate!.confidence,
 		);
 	});
 

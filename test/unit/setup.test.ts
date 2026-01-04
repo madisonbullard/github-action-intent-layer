@@ -136,7 +136,7 @@ describe("Test Fixtures Setup", () => {
 
 			expect(treeEntry).toBeDefined();
 
-			const response = createMockBlobResponse(fixture, treeEntry?.sha);
+			const response = createMockBlobResponse(fixture, treeEntry!.sha);
 
 			expect(response.data).toBeDefined();
 			expect(response.data.content).toBeDefined();
@@ -225,7 +225,7 @@ describe("Test Fixtures Setup", () => {
 
 			expect(claudeEntry).toBeDefined();
 
-			const response = createMockBlobResponse(fixture, claudeEntry?.sha);
+			const response = createMockBlobResponse(fixture, claudeEntry!.sha);
 
 			// Decode and verify it returns the symlink target
 			const content = Buffer.from(response.data.content, "base64").toString(

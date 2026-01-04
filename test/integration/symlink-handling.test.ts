@@ -151,13 +151,13 @@ describe("Integration: symlink handling - AGENTS.md as source", () => {
 	test("symlink target points to AGENTS.md", () => {
 		const claudeEntry = fixture.tree.tree.find((e) => e.path === "CLAUDE.md");
 		expect(claudeEntry).toBeDefined();
-		const symlinkTarget = fixture.tree.symlinkTargets?.[claudeEntry?.sha];
+		const symlinkTarget = fixture.tree.symlinkTargets?.[claudeEntry!.sha];
 		expect(symlinkTarget).toBe("AGENTS.md");
 	});
 
 	test("createMockBlobResponse returns symlink target for symlinked file", () => {
 		const claudeEntry = fixture.tree.tree.find((e) => e.path === "CLAUDE.md");
-		const blobResponse = createMockBlobResponse(fixture, claudeEntry?.sha);
+		const blobResponse = createMockBlobResponse(fixture, claudeEntry!.sha);
 
 		const decodedContent = Buffer.from(
 			blobResponse.data.content,
@@ -277,13 +277,13 @@ describe("Integration: symlink handling - CLAUDE.md as source", () => {
 	test("symlink target points to CLAUDE.md", () => {
 		const agentsEntry = fixture.tree.tree.find((e) => e.path === "AGENTS.md");
 		expect(agentsEntry).toBeDefined();
-		const symlinkTarget = fixture.tree.symlinkTargets?.[agentsEntry?.sha];
+		const symlinkTarget = fixture.tree.symlinkTargets?.[agentsEntry!.sha];
 		expect(symlinkTarget).toBe("CLAUDE.md");
 	});
 
 	test("createMockBlobResponse returns symlink target for symlinked file", () => {
 		const agentsEntry = fixture.tree.tree.find((e) => e.path === "AGENTS.md");
-		const blobResponse = createMockBlobResponse(fixture, agentsEntry?.sha);
+		const blobResponse = createMockBlobResponse(fixture, agentsEntry!.sha);
 
 		const decodedContent = Buffer.from(
 			blobResponse.data.content,
@@ -547,7 +547,8 @@ describe("Integration: full symlink workflow", () => {
 		expect(validation.valid).toBe(true);
 
 		// 4. Determine source file type and build hierarchy
-		const sourceType = relationships[0]?.sourceType;
+		const relationship = relationships[0]!;
+		const sourceType = relationship.sourceType;
 		const sourceFiles =
 			sourceType === "agents"
 				? detectionResult.agentsFiles
@@ -586,7 +587,8 @@ describe("Integration: full symlink workflow", () => {
 		expect(validation.valid).toBe(true);
 
 		// 4. Determine source file type and build hierarchy
-		const sourceType = relationships[0]?.sourceType;
+		const relationship = relationships[0]!;
+		const sourceType = relationship.sourceType;
 		const sourceFiles =
 			sourceType === "agents"
 				? detectionResult.agentsFiles

@@ -851,14 +851,14 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]?.commit,
+					...sampleCommitData[0]!.commit,
 					message: "feat: add feature\n\nFixes #100",
 				},
 			},
 			{
 				...sampleCommitData[1]!,
 				commit: {
-					...sampleCommitData[1]?.commit,
+					...sampleCommitData[1]!.commit,
 					message: "fix: resolve bug\n\nCloses #200",
 				},
 			},
@@ -877,7 +877,7 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]?.commit,
+					...sampleCommitData[0]!.commit,
 					message: "fix: resolve\n\nFixes #200",
 				},
 			},
@@ -896,14 +896,14 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]?.commit,
+					...sampleCommitData[0]!.commit,
 					message: "feat: add feature\n\nFixes #123",
 				},
 			},
 			{
 				...sampleCommitData[1]!,
 				commit: {
-					...sampleCommitData[1]?.commit,
+					...sampleCommitData[1]!.commit,
 					message: "fix: tweak feature\n\nFixes #123",
 				},
 			},
@@ -940,7 +940,7 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]?.commit,
+					...sampleCommitData[0]!.commit,
 					message: "feat: add something",
 				},
 			},
@@ -957,11 +957,11 @@ describe("extractLinkedIssues", () => {
 			{
 				...sampleCommitData[0]!,
 				commit: {
-					...sampleCommitData[0]?.commit,
+					...sampleCommitData[0]!.commit,
 					message: "Fixes #42",
 				},
 			},
-		];
+		] as typeof sampleCommitData;
 		const client = createMockLinkedIssuesClient(prData, commitData);
 		const issues = await extractLinkedIssues(client, 42);
 
@@ -1249,12 +1249,12 @@ describe("extractPRReviewComments", () => {
 			{
 				...sampleReviewCommentData[0]!,
 				user: {
-					...sampleReviewCommentData[0]?.user,
+					...sampleReviewCommentData[0]!.user,
 					login: "dependabot[bot]",
 					type: "Bot",
 				},
 			},
-		];
+		] as typeof sampleReviewCommentData;
 		const client = createMockReviewCommentClient(botCommentData);
 		const comments = await extractPRReviewComments(client, 42);
 
