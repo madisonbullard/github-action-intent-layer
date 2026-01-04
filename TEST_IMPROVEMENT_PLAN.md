@@ -166,7 +166,7 @@ This ensures uniqueness even if concurrent CI runs occur.
 - [x] **PR Comment Flow**: Create PR → run action → verify comment posted with correct format
 - [x] **Checkbox Commit Flow**: Toggle checkbox → verify intent commit created
 - [x] **Checkbox Revert Flow**: Untoggle checkbox → verify file reverted
-- [ ] **Rate Limit Handling**: Verify exponential backoff works
+- [x] **Rate Limit Handling**: Verify exponential backoff works
 
 ### Implementation Tasks
 - [x] Implement `test/integration-real-github/setup.ts`:
@@ -184,7 +184,7 @@ This ensures uniqueness even if concurrent CI runs occur.
   }
   ```
 - [x] Implement PR comment flow test
-- [ ] Implement checkbox commit flow test
+- [x] Implement checkbox commit flow test
 - [x] Wrap test execution in try/finally to ensure cleanup on failure
   - **Result:** Added `withTestResources()` utility function to `test/integration-real-github/setup.ts` that wraps test execution in try/finally to guarantee cleanup. Also added `cleanupTestResources()` for manual resource management and `createTestResourcesManually()` for cases needing more control. Updated module documentation with usage examples.
 
