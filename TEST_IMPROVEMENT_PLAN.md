@@ -218,7 +218,7 @@ We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/P
   - `run_github_tests` (default: false)
 - [x] Rename `test` job to `test-unit`, change command to `bun test test/unit/`
 - [x] Add `test-integration` job running `bun test test/integration/`
-- [ ] Add conditional `test-github-real` job:
+- [x] Add conditional `test-github-real` job:
   ```yaml
   test-github-real:
     name: Real GitHub API Tests
