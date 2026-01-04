@@ -1,0 +1,18 @@
+session "Documentation Sync"
+
+# Analyze code and docs in parallel
+parallel:
+  code = session "Scan the src/ directory and identify all exported functions, classes, and their signatures"
+  docs = session "Read README.md and any docs/ files, extract what's currently documented"
+
+# Compare and find gaps
+gaps = session "Compare code exports vs documentation coverage. List undocumented or outdated items."
+  context: { code, docs }
+
+# Generate updates
+if **there are documentation gaps**:
+  session "Generate documentation updates for the gaps found. Output as markdown."
+    context: gaps
+else:
+  session "Confirm docs are in sync. Suggest any improvements for clarity."
+    context: { code, docs }

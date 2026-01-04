@@ -28,10 +28,10 @@ The action runs on PRs (open, sync, edit), analyzes code changes, and suggests u
 │       ├── ci.yml                # Run tests on PRs
 │       └── release.yml           # Release on main branch
 ├── action.yml                    # GitHub Action definition
+├── index.ts                      # Entry point (routes to analyze or checkbox-handler)
 ├── package.json                  # Bun package
 ├── tsconfig.json
 ├── src/
-│   ├── index.ts                  # Entry point (routes to analyze or checkbox-handler)
 │   ├── config/
 │   │   ├── schema.ts             # Zod schema for action inputs
 │   │   └── defaults.ts           # Default configuration values
@@ -60,9 +60,20 @@ The action runs on PRs (open, sync, edit), analyzes code changes, and suggests u
 │       ├── diff.ts               # Diff formatting utilities
 │       └── errors.ts             # Custom error classes
 ├── test/
-│   ├── unit/                     # Unit tests with mocked GitHub API
-│   ├── integration/              # Integration tests against test repo
-│   └── fixtures/                 # Test fixtures (sample repos, PRs)
+│   ├── fixtures/                 # Test fixtures (sample repos, PRs)
+│   │   ├── basic-agents/         # Basic AGENTS.md hierarchy fixture
+│   │   ├── nested-hierarchy/     # Nested directory hierarchy fixture
+│   │   ├── no-intent-layer/      # Repository without intent layer fixture
+│   │   ├── symlink-agents-source/ # Symlink with agents as source fixture
+│   │   └── symlink-claude-source/ # Symlink with claude as source fixture
+│   ├── integration/              # Integration tests (mocked GitHub API)
+│   ├── integration-llm/          # Integration tests requiring LLM
+│   ├── integration-real-github/  # Integration tests against real GitHub API
+│   ├── mocks/                    # Mock implementations
+│   │   ├── github.ts             # GitHub API mocks
+│   │   ├── opencode.ts           # OpenCode SDK mocks
+│   │   └── index.ts              # Mock exports
+│   └── unit/                     # Unit tests
 └── README.md
 ```
 
@@ -413,23 +424,30 @@ When a checkbox is unchecked, use **file-level revert** (restore the specific in
 ```json
 {
   "dependencies": {
-    "@actions/core": "^1.10.0",
-    "@actions/github": "^6.0.0",
-    "@opencode-ai/sdk": "latest",
-    "zod": "^3.22.0",
-    "ignore": "^5.3.0",
-    "minimatch": "^9.0.0",
-    "diff": "^5.1.0",
-    "yaml": "^2.3.0"
+    "@actions/core": "2.0.1",
+    "@actions/github": "6.0.1",
+    "@opencode-ai/sdk": "1.0.224",
+    "diff": "8.0.2",
+    "ignore": "7.0.5",
+    "minimatch": "10.1.1",
+    "yaml": "2.8.2",
+    "zod": "4.3.4"
   },
   "devDependencies": {
-    "vitest": "^1.0.0",
-    "typescript": "^5.3.0",
-    "@types/node": "^20.0.0",
-    "esbuild": "^0.19.0"
+    "@biomejs/biome": "2.3.10",
+    "@tsconfig/bun": "1.0.10",
+    "@types/bun": "1.3.5",
+    "@types/diff": "8.0.0",
+    "@types/node": "^22.19",
+    "esbuild": "^0.25.0",
+    "husky": "9.1.7",
+    "lint-staged": "16.2.7",
+    "typescript": "5.9.3"
   }
 }
 ```
+
+Note: Tests use Bun's built-in test runner (`bun test`), not vitest.
 
 ---
 
