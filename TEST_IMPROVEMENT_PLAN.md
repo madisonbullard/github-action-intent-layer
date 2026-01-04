@@ -231,7 +231,7 @@ We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/P
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   ```
-- [ ] Add conditional `test-llm-real` job:
+- [x] Add conditional `test-llm-real` job:
   ```yaml
   test-llm-real:
     name: Real LLM Tests
