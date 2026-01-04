@@ -164,7 +164,7 @@ This ensures uniqueness even if concurrent CI runs occur.
 
 ### Test Scenarios
 - [x] **PR Comment Flow**: Create PR → run action → verify comment posted with correct format
-- [ ] **Checkbox Commit Flow**: Toggle checkbox → verify intent commit created
+- [x] **Checkbox Commit Flow**: Toggle checkbox → verify intent commit created
 - [ ] **Checkbox Revert Flow**: Untoggle checkbox → verify file reverted
 - [ ] **Rate Limit Handling**: Verify exponential backoff works
 
