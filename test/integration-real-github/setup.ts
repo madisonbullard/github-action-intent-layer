@@ -15,11 +15,39 @@
  * - Example: test-fixture/12345678-1704067200
  * - This ensures uniqueness even with concurrent CI runs
  *
- * Example usage:
+ * ## Recommended: Use withTestResources for automatic cleanup
+ *
+ * The `withTestResources` utility wraps test execution in try/finally to
+ * guarantee cleanup even when tests fail or throw errors:
+ *
+ * ```typescript
+ * import { describe, test } from 'bun:test';
+ * import { withTestResources, shouldSkipRealTests } from './setup';
+ *
+ * describe('Real GitHub Integration', () => {
+ *   test.skipIf(shouldSkipRealTests())('checkbox toggle creates commit', async () => {
+ *     await withTestResources(async (ctx) => {
+ *       // ctx.branchName, ctx.prNumber, ctx.prUrl, ctx.config, ctx.octokit available
+ *       const { data: pr } = await ctx.octokit.rest.pulls.get({
+ *         owner: ctx.config.owner,
+ *         repo: ctx.config.repo,
+ *         pull_number: ctx.prNumber,
+ *       });
+ *       expect(pr.state).toBe('open');
+ *       // Cleanup happens automatically in finally block!
+ *     });
+ *   });
+ * });
+ * ```
+ *
+ * ## Alternative: Manual resource management with afterAll
+ *
+ * For more control, you can manage resources manually. Be sure to use
+ * cleanupTestResources in afterAll to handle cleanup:
  *
  * ```typescript
  * import { describe, test, afterAll } from 'bun:test';
- * import { createTestBranch, cleanupTestBranch, createTestPullRequest } from './setup';
+ * import { createTestBranch, cleanupTestBranch, createTestPullRequest, closeTestPullRequest } from './setup';
  *
  * describe('Real GitHub Integration', () => {
  *   let branchName: string;
@@ -375,4 +403,203 @@ export async function waitForComment(
  */
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// =============================================================================
+// Test Resource Management (try/finally wrapper)
+// =============================================================================
+
+/**
+ * Resources created during test execution that need cleanup.
+ */
+export interface TestResources {
+	/** Test branch name (if created) */
+	branchName?: string;
+	/** PR number (if created) */
+	prNumber?: number;
+}
+
+/**
+ * Context provided to test callback with created resources.
+ */
+export interface TestContext {
+	/** The created test branch name */
+	branchName: string;
+	/** The created PR number */
+	prNumber: number;
+	/** The PR URL */
+	prUrl: string;
+	/** Test configuration */
+	config: RealGitHubTestConfig;
+	/** Octokit client for additional API calls */
+	octokit: OctokitClient;
+}
+
+/**
+ * Options for withTestResources.
+ */
+export interface WithTestResourcesOptions {
+	/** PR title (default: auto-generated with timestamp) */
+	prTitle?: string;
+	/** PR body (default: standard test description) */
+	prBody?: string;
+	/** Base branch for the PR (default: from config) */
+	baseBranch?: string;
+}
+
+/**
+ * Wrap test execution in try/finally to ensure cleanup on failure.
+ *
+ * This utility function:
+ * 1. Creates a test branch
+ * 2. Creates a test PR
+ * 3. Executes the test callback with the created resources
+ * 4. ALWAYS cleans up (closes PR, deletes branch) in a finally block
+ *
+ * This pattern ensures that test resources are cleaned up even when:
+ * - The test throws an error
+ * - An assertion fails
+ * - The test times out (cleanup will run when timeout handler completes)
+ *
+ * @param testFn - Async test function that receives TestContext
+ * @param options - Optional configuration for resource creation
+ * @returns Promise that resolves when test completes and cleanup finishes
+ *
+ * @example
+ * ```typescript
+ * test('checkbox toggle creates commit', async () => {
+ *   await withTestResources(async (ctx) => {
+ *     // ctx.branchName, ctx.prNumber, ctx.octokit available
+ *     const { data: pr } = await ctx.octokit.rest.pulls.get({
+ *       owner: ctx.config.owner,
+ *       repo: ctx.config.repo,
+ *       pull_number: ctx.prNumber,
+ *     });
+ *     expect(pr.state).toBe('open');
+ *   });
+ * });
+ * ```
+ */
+export async function withTestResources(
+	testFn: (ctx: TestContext) => Promise<void>,
+	options: WithTestResourcesOptions = {},
+): Promise<void> {
+	const resources: TestResources = {};
+	const config = getTestConfig();
+	const octokit = getOctokit();
+
+	try {
+		// Step 1: Create test branch
+		const runId = process.env.GITHUB_RUN_ID ?? "local";
+		resources.branchName = await createTestBranch(runId);
+
+		// Step 2: Create test PR
+		const prResult = await createTestPullRequest({
+			head: resources.branchName,
+			base: options.baseBranch ?? config.baseBranch ?? "main",
+			title: options.prTitle ?? `[TEST] Auto-cleanup test - ${Date.now()}`,
+			body:
+				options.prBody ??
+				"Automated test PR with guaranteed cleanup.\n\nThis PR will be automatically closed and its branch deleted after the test completes.",
+		});
+		resources.prNumber = prResult.number;
+
+		// Step 3: Execute test with context
+		const ctx: TestContext = {
+			branchName: resources.branchName,
+			prNumber: resources.prNumber,
+			prUrl: prResult.url,
+			config,
+			octokit,
+		};
+
+		await testFn(ctx);
+	} finally {
+		// Step 4: ALWAYS clean up, regardless of test outcome
+		await cleanupTestResources(resources);
+	}
+}
+
+/**
+ * Clean up test resources safely.
+ *
+ * This function:
+ * 1. Closes the PR (if created)
+ * 2. Deletes the branch (if created)
+ * 3. Logs warnings but doesn't throw on cleanup failures
+ *
+ * @param resources - Resources to clean up
+ */
+export async function cleanupTestResources(
+	resources: TestResources,
+): Promise<void> {
+	// Close PR first (must be done before branch deletion for some workflows)
+	if (resources.prNumber !== undefined) {
+		try {
+			await closeTestPullRequest(resources.prNumber);
+		} catch (error) {
+			// Log but don't throw - we still want to try branch cleanup
+			console.warn(`Failed to close PR #${resources.prNumber}:`, error);
+		}
+	}
+
+	// Delete branch
+	if (resources.branchName !== undefined) {
+		try {
+			await cleanupTestBranch(resources.branchName);
+		} catch (error) {
+			// Log but don't throw - cleanup is best-effort
+			console.warn(`Failed to delete branch ${resources.branchName}:`, error);
+		}
+	}
+}
+
+/**
+ * Create test resources without executing a test.
+ *
+ * Use this when you need more control over the test lifecycle,
+ * but remember to call cleanupTestResources in a finally block!
+ *
+ * @param options - Optional configuration for resource creation
+ * @returns TestContext with created resources
+ *
+ * @example
+ * ```typescript
+ * let resources: TestResources = {};
+ * try {
+ *   const ctx = await createTestResourcesManually();
+ *   resources = { branchName: ctx.branchName, prNumber: ctx.prNumber };
+ *   // ... run test ...
+ * } finally {
+ *   await cleanupTestResources(resources);
+ * }
+ * ```
+ */
+export async function createTestResourcesManually(
+	options: WithTestResourcesOptions = {},
+): Promise<TestContext> {
+	const config = getTestConfig();
+	const octokit = getOctokit();
+
+	// Create test branch
+	const runId = process.env.GITHUB_RUN_ID ?? "local";
+	const branchName = await createTestBranch(runId);
+
+	// Create test PR
+	const prResult = await createTestPullRequest({
+		head: branchName,
+		base: options.baseBranch ?? config.baseBranch ?? "main",
+		title: options.prTitle ?? `[TEST] Manual cleanup test - ${Date.now()}`,
+		body:
+			options.prBody ??
+			"Automated test PR.\n\nRemember to clean up this PR and branch after the test!",
+	});
+
+	return {
+		branchName,
+		prNumber: prResult.number,
+		prUrl: prResult.url,
+		config,
+		octokit,
+	};
 }

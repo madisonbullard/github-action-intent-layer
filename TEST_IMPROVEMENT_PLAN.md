@@ -185,7 +185,8 @@ This ensures uniqueness even if concurrent CI runs occur.
   ```
 - [x] Implement PR comment flow test
 - [ ] Implement checkbox commit flow test
-- [ ] Wrap test execution in try/finally to ensure cleanup on failure
+- [x] Wrap test execution in try/finally to ensure cleanup on failure
+  - **Result:** Added `withTestResources()` utility function to `test/integration-real-github/setup.ts` that wraps test execution in try/finally to guarantee cleanup. Also added `cleanupTestResources()` for manual resource management and `createTestResourcesManually()` for cases needing more control. Updated module documentation with usage examples.
 
 ### Permissions Note
 We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/PR creation, we'll need to switch to a PAT with elevated permissions.
