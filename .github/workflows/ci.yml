@@ -5,6 +5,18 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_llm_tests:
+        description: 'Run real LLM tests (requires ANTHROPIC_API_KEY secret)'
+        required: false
+        type: boolean
+        default: false
+      run_github_tests:
+        description: 'Run real GitHub API tests'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

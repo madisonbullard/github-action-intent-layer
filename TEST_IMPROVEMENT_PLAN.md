@@ -207,7 +207,7 @@ We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/P
 - `cleanup-test-branches` job (scheduled daily OR on test failure)
 
 ### Tasks
-- [ ] Add `workflow_dispatch` trigger with boolean inputs:
+- [x] Add `workflow_dispatch` trigger with boolean inputs:
   - `run_llm_tests` (default: false)
   - `run_github_tests` (default: false)
 - [ ] Rename `test` job to `test-unit`, change command to `bun test test/unit/`
