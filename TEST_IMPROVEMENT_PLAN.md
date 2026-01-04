@@ -244,7 +244,7 @@ We'll use `GITHUB_TOKEN` initially. If permissions are insufficient for branch/P
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   ```
-- [ ] Add cleanup job for test branches:
+- [x] Add cleanup job for test branches:
   ```yaml
   cleanup-test-branches:
     name: Cleanup Test Branches

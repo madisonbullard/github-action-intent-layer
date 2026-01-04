@@ -150,3 +150,23 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           RUN_LLM_TESTS: 'true'
+
+  cleanup-test-branches:
+    name: Cleanup Test Branches
+    runs-on: ubuntu-latest
+    needs: [test-github-real]
+    # Always run after real GitHub tests (success or failure)
+    if: always() && needs.test-github-real.result != 'skipped'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete test-fixture branches
+        run: |
+          gh api repos/${{ github.repository }}/branches --paginate -q '.[].name' | \
+            grep '^test-fixture/' | \
+            while read branch; do
+              echo "Deleting branch: $branch"
+              gh api repos/${{ github.repository }}/git/refs/heads/$branch --method DELETE || true
+            done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
