@@ -15,27 +15,7 @@
  * - Example: test-fixture/12345678-1704067200
  * - This ensures uniqueness even with concurrent CI runs
  *
- * TODO: Implement the following:
- *
- * 1. Branch Management
- *    - createTestBranch(runId: string): Promise<string>
- *    - cleanupTestBranch(branchName: string): Promise<void>
- *    - cleanupAllTestBranches(): Promise<void>
- *
- * 2. PR Management
- *    - createTestPullRequest(options): Promise<{ number: number; url: string }>
- *    - closeTestPullRequest(prNumber: number): Promise<void>
- *
- * 3. Test Fixtures
- *    - setupTestFixtureFiles(branchName: string, files: Record<string, string>): Promise<void>
- *    - createTestCommit(branchName: string, message: string): Promise<string>
- *
- * 4. Verification Helpers
- *    - waitForComment(prNumber: number, pattern: RegExp, timeout?: number): Promise<Comment>
- *    - verifyCommitExists(sha: string): Promise<boolean>
- *    - verifyFileContent(path: string, branchName: string): Promise<string>
- *
- * Example usage (future):
+ * Example usage:
  *
  * ```typescript
  * import { describe, test, afterAll } from 'bun:test';
@@ -68,6 +48,8 @@
  * });
  * ```
  */
+
+import * as github from "@actions/github";
 
 /**
  * Configuration for real GitHub tests.
@@ -139,46 +121,135 @@ export function shouldSkipRealTests(): boolean {
 }
 
 // =============================================================================
-// TODO: Implement the functions below
+// GitHub API Client Helpers
+// =============================================================================
+
+type OctokitClient = ReturnType<typeof github.getOctokit>;
+
+/**
+ * Get or create a cached Octokit client.
+ * Uses the configuration from getTestConfig().
+ */
+let cachedOctokit: OctokitClient | null = null;
+
+function getOctokit(): OctokitClient {
+	if (!cachedOctokit) {
+		const config = getTestConfig();
+		cachedOctokit = github.getOctokit(config.token);
+	}
+	return cachedOctokit;
+}
+
+/**
+ * Reset the cached Octokit client.
+ * Useful for tests that need to change the token.
+ */
+export function resetOctokitCache(): void {
+	cachedOctokit = null;
+}
+
+// =============================================================================
+// Branch Management
 // =============================================================================
 
 /**
  * Create a test branch from the base branch.
  *
- * TODO: Implement using GitHub API:
- * 1. Get ref for base branch
- * 2. Create new ref for test branch pointing to same SHA
+ * Uses the GitHub Git References API:
+ * 1. Get the SHA of the base branch
+ * 2. Create a new ref pointing to that SHA
  *
- * @param runId - Unique identifier for this test run
- * @returns The created branch name
+ * @param runId - Unique identifier for this test run (e.g., GITHUB_RUN_ID or 'local')
+ * @returns The created branch name (format: test-fixture/{runId}-{timestamp})
  */
-export async function createTestBranch(_runId: string): Promise<string> {
-	throw new Error("Not implemented yet. See TODO comments for implementation.");
+export async function createTestBranch(runId: string): Promise<string> {
+	const config = getTestConfig();
+	const octokit = getOctokit();
+	const branchName = generateTestBranchName(runId);
+
+	// Get the SHA of the base branch
+	const { data: baseRef } = await octokit.rest.git.getRef({
+		owner: config.owner,
+		repo: config.repo,
+		ref: `heads/${config.baseBranch}`,
+	});
+
+	// Create the new branch pointing to the same SHA
+	await octokit.rest.git.createRef({
+		owner: config.owner,
+		repo: config.repo,
+		ref: `refs/heads/${branchName}`,
+		sha: baseRef.object.sha,
+	});
+
+	return branchName;
 }
 
 /**
  * Delete a test branch.
  *
- * TODO: Implement using GitHub API:
- * DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}
+ * Uses DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}
  *
- * @param branchName - Branch to delete
+ * @param branchName - Branch to delete (e.g., 'test-fixture/12345-1704067200')
+ * @throws Error if the branch doesn't exist or deletion fails
  */
-export async function cleanupTestBranch(_branchName: string): Promise<void> {
-	throw new Error("Not implemented yet. See TODO comments for implementation.");
+export async function cleanupTestBranch(branchName: string): Promise<void> {
+	const config = getTestConfig();
+	const octokit = getOctokit();
+
+	await octokit.rest.git.deleteRef({
+		owner: config.owner,
+		repo: config.repo,
+		ref: `heads/${branchName}`,
+	});
 }
 
 /**
  * Clean up all test branches (those matching test-fixture/* pattern).
- * Useful for periodic cleanup in CI.
+ * Useful for periodic cleanup in CI or after test failures.
  *
- * TODO: Implement using GitHub API:
- * 1. List all branches
- * 2. Filter by test-fixture/ prefix
- * 3. Delete each matching branch
+ * This function:
+ * 1. Lists all branches matching the test-fixture/ prefix
+ * 2. Deletes each matching branch
+ * 3. Continues even if individual deletions fail (logs warnings)
+ *
+ * @returns Number of branches deleted
  */
-export async function cleanupAllTestBranches(): Promise<void> {
-	throw new Error("Not implemented yet. See TODO comments for implementation.");
+export async function cleanupAllTestBranches(): Promise<number> {
+	const config = getTestConfig();
+	const octokit = getOctokit();
+	const prefix = "test-fixture/";
+
+	// List all branches (paginated)
+	const branches: string[] = [];
+	for await (const response of octokit.paginate.iterator(
+		octokit.rest.repos.listBranches,
+		{
+			owner: config.owner,
+			repo: config.repo,
+			per_page: 100,
+		},
+	)) {
+		for (const branch of response.data) {
+			if (branch.name.startsWith(prefix)) {
+				branches.push(branch.name);
+			}
+		}
+	}
+
+	// Delete each test branch
+	let deletedCount = 0;
+	for (const branchName of branches) {
+		try {
+			await cleanupTestBranch(branchName);
+			deletedCount++;
+		} catch (error) {
+			// Log but continue - we want to clean up as many as possible
+			console.warn(`Failed to delete branch ${branchName}:`, error);
+		}
+	}
+
+	return deletedCount;
 }
 
 /**
@@ -198,47 +269,110 @@ export interface CreateTestPROptions {
 /**
  * Create a test pull request.
  *
- * TODO: Implement using GitHub API:
- * POST /repos/{owner}/{repo}/pulls
+ * Uses POST /repos/{owner}/{repo}/pulls
  *
  * @param options - PR creation options
  * @returns Created PR number and URL
  */
 export async function createTestPullRequest(
-	_options: CreateTestPROptions,
+	options: CreateTestPROptions,
 ): Promise<{ number: number; url: string }> {
-	throw new Error("Not implemented yet. See TODO comments for implementation.");
+	const config = getTestConfig();
+	const octokit = getOctokit();
+
+	const { data: pr } = await octokit.rest.pulls.create({
+		owner: config.owner,
+		repo: config.repo,
+		head: options.head,
+		base: options.base,
+		title: options.title,
+		body: options.body,
+	});
+
+	return {
+		number: pr.number,
+		url: pr.html_url,
+	};
 }
 
 /**
  * Close a test pull request.
  *
- * TODO: Implement using GitHub API:
- * PATCH /repos/{owner}/{repo}/pulls/{pull_number}
+ * Uses PATCH /repos/{owner}/{repo}/pulls/{pull_number}
  *
  * @param prNumber - PR number to close
  */
-export async function closeTestPullRequest(_prNumber: number): Promise<void> {
-	throw new Error("Not implemented yet. See TODO comments for implementation.");
+export async function closeTestPullRequest(prNumber: number): Promise<void> {
+	const config = getTestConfig();
+	const octokit = getOctokit();
+
+	await octokit.rest.pulls.update({
+		owner: config.owner,
+		repo: config.repo,
+		pull_number: prNumber,
+		state: "closed",
+	});
 }
 
 /**
  * Wait for a comment matching a pattern to appear on a PR.
  * Useful for verifying action output.
  *
- * TODO: Implement with polling:
- * 1. GET /repos/{owner}/{repo}/issues/{issue_number}/comments
- * 2. Check if any comment body matches pattern
- * 3. Retry with backoff until timeout
+ * Polls the comments endpoint with exponential backoff until:
+ * - A comment matching the pattern is found
+ * - The timeout is exceeded
  *
  * @param prNumber - PR number to check
  * @param pattern - Regex pattern to match in comment body
  * @param timeoutMs - Maximum time to wait (default: 30000)
+ * @returns The matching comment's id and body
+ * @throws Error if timeout is exceeded without finding a matching comment
  */
 export async function waitForComment(
-	_prNumber: number,
-	_pattern: RegExp,
-	_timeoutMs = 30000,
+	prNumber: number,
+	pattern: RegExp,
+	timeoutMs = 30000,
 ): Promise<{ id: number; body: string }> {
-	throw new Error("Not implemented yet. See TODO comments for implementation.");
+	const config = getTestConfig();
+	const octokit = getOctokit();
+
+	const startTime = Date.now();
+	let pollInterval = 1000; // Start with 1 second
+	const maxPollInterval = 5000; // Max 5 seconds between polls
+
+	while (Date.now() - startTime < timeoutMs) {
+		// Fetch all comments on the PR/issue
+		const { data: comments } = await octokit.rest.issues.listComments({
+			owner: config.owner,
+			repo: config.repo,
+			issue_number: prNumber,
+			per_page: 100,
+		});
+
+		// Check if any comment matches the pattern
+		for (const comment of comments) {
+			if (comment.body && pattern.test(comment.body)) {
+				return {
+					id: comment.id,
+					body: comment.body,
+				};
+			}
+		}
+
+		// Wait before polling again (exponential backoff)
+		await sleep(pollInterval);
+		pollInterval = Math.min(pollInterval * 1.5, maxPollInterval);
+	}
+
+	throw new Error(
+		`Timeout waiting for comment matching ${pattern} on PR #${prNumber} after ${timeoutMs}ms`,
+	);
+}
+
+/**
+ * Sleep for the specified duration.
+ * @param ms - Duration in milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }

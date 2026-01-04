@@ -163,7 +163,7 @@ This ensures uniqueness even if concurrent CI runs occur.
 - [ ] **Rate Limit Handling**: Verify exponential backoff works
 
 ### Implementation Tasks
-- [ ] Implement `test/integration-real-github/setup.ts`:
+- [x] Implement `test/integration-real-github/setup.ts`:
   ```typescript
   export async function createTestBranch(runId: string): Promise<string> {
     const timestamp = Date.now();
