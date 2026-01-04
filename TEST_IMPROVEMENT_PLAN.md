@@ -183,7 +183,7 @@ This ensures uniqueness even if concurrent CI runs occur.
     // Delete branch via GitHub API
   }
   ```
-- [ ] Implement PR comment flow test
+- [x] Implement PR comment flow test
 - [ ] Implement checkbox commit flow test
 - [ ] Wrap test execution in try/finally to ensure cleanup on failure
 
