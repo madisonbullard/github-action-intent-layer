@@ -220,8 +220,10 @@ export async function createOpenCodeClientWithServer(
 		});
 		core.info(`OpenCode server started at ${server.url}`);
 
-		// Create the client
-		const client = createOpencodeClient({ baseUrl: server.url });
+		// Create the client with the working directory set
+		const directory = process.cwd();
+		core.info(`Creating client with directory: ${directory}`);
+		const client = createOpencodeClient({ baseUrl: server.url, directory });
 
 		// Set up authentication
 		core.info(`Setting up authentication for provider: ${providerId}`);
