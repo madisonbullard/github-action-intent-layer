@@ -110,7 +110,7 @@ export function getTestConfig(): RealLLMTestConfig {
 	// Prefer Anthropic if available, otherwise use OpenRouter
 	const defaultModel = anthropicApiKey
 		? "anthropic/claude-sonnet-4-20250514"
-		: "openrouter/anthropic/claude-sonnet-4-20250514";
+		: "openrouter/anthropic/claude-sonnet-4.5";
 
 	return {
 		anthropicApiKey,
