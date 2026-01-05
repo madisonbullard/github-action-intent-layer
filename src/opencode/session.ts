@@ -431,9 +431,10 @@ export class IntentAnalysisSession {
 			core.info(
 				`Sending prompt to session ${this.sessionId} with model ${model.providerID}/${model.modelID}`,
 			);
-			// Disable all tools to ensure we get a pure text response
-			// This is for intent layer analysis where we only need JSON output
-			const response = await this.client.session.prompt({
+
+			// Use promptAsync to send the message, then poll for completion
+			// The sync prompt endpoint seems to return immediately in headless mode
+			await this.client.session.promptAsync({
 				path: { id: this.sessionId },
 				body: {
 					model: {
@@ -450,50 +451,73 @@ export class IntentAnalysisSession {
 				},
 			});
 
-			core.info(
-				`Full SDK response keys: ${Object.keys(response as object).join(", ")}`,
-			);
-			core.info(
-				`Full SDK response: ${JSON.stringify(response).substring(0, 2000)}`,
-			);
+			core.info("Prompt sent, waiting for LLM response...");
 
-			// Check if response has an error
-			const responseAny = response as Record<string, unknown>;
-			if (responseAny.error) {
-				core.error(`SDK returned error: ${JSON.stringify(responseAny.error)}`);
-				throw new SessionError(
-					`SDK error: ${JSON.stringify(responseAny.error)}`,
+			// Poll for the response by checking session messages
+			const maxWaitTime = 300000; // 5 minutes max wait
+			const pollInterval = 1000; // Check every 1 second
+			const startTime = Date.now();
+
+			while (Date.now() - startTime < maxWaitTime) {
+				await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+				// Get the latest messages from the session
+				const messagesResponse = await this.client.session.messages({
+					path: { id: this.sessionId },
+				});
+
+				const messages = messagesResponse as unknown as Array<{
+					info: { role: string; time?: { completed?: number } };
+					parts: Array<{ type: string; text?: string }>;
+				}>;
+
+				// Find the latest assistant message
+				const assistantMessages = messages.filter(
+					(m) => m.info.role === "assistant",
 				);
+				const latestAssistant = assistantMessages[assistantMessages.length - 1];
+				if (latestAssistant) {
+					// Check if the message is complete (has completed timestamp)
+					if (latestAssistant.info.time?.completed) {
+						core.info(
+							`LLM response completed after ${Date.now() - startTime}ms`,
+						);
+
+						// Extract text from parts
+						const textParts = latestAssistant.parts
+							.filter((p) => p.type === "text" && p.text)
+							.map((p) => p.text as string);
+						const rawResponse = textParts.join("");
+
+						// Try to parse as LLM output
+						const parseResult = parseRawLLMOutput(rawResponse);
+
+						if (parseResult.success) {
+							return {
+								rawResponse,
+								parsedOutput: parseResult.data,
+							};
+						}
+
+						return {
+							rawResponse,
+							parseError: parseResult.error,
+						};
+					}
+				}
+
+				// Log progress every 10 seconds
+				const elapsed = Date.now() - startTime;
+				if (elapsed % 10000 < pollInterval) {
+					core.info(
+						`Still waiting for LLM response... (${Math.floor(elapsed / 1000)}s)`,
+					);
+				}
 			}
 
-			// Check for HTTP response details
-			if (responseAny.response) {
-				const httpResponse = responseAny.response as {
-					status?: number;
-					statusText?: string;
-				};
-				core.info(
-					`HTTP response status: ${httpResponse.status} ${httpResponse.statusText || ""}`,
-				);
-			}
-
-			// Extract text response from parts
-			const rawResponse = this.extractTextFromResponse(response);
-
-			// Try to parse as LLM output
-			const parseResult = parseRawLLMOutput(rawResponse);
-
-			if (parseResult.success) {
-				return {
-					rawResponse,
-					parsedOutput: parseResult.data,
-				};
-			}
-
-			return {
-				rawResponse,
-				parseError: parseResult.error,
-			};
+			throw new SessionError(
+				`Timeout waiting for LLM response after ${maxWaitTime}ms`,
+			);
 		} catch (error) {
 			// Check if this is a model access error
 			const modelAccessCheck = detectModelAccessError(error);
