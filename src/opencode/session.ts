@@ -428,7 +428,7 @@ export class IntentAnalysisSession {
 		const model = config.model ?? this.defaultModel;
 
 		try {
-			core.debug(
+			core.info(
 				`Sending prompt to session ${this.sessionId} with model ${model.providerID}/${model.modelID}`,
 			);
 			const response = await this.client.session.prompt({
@@ -447,7 +447,10 @@ export class IntentAnalysisSession {
 				},
 			});
 
-			core.debug(
+			core.info(
+				`Full SDK response keys: ${Object.keys(response as object).join(", ")}`,
+			);
+			core.info(
 				`Full SDK response: ${JSON.stringify(response).substring(0, 2000)}`,
 			);
 
@@ -457,6 +460,17 @@ export class IntentAnalysisSession {
 				core.error(`SDK returned error: ${JSON.stringify(responseAny.error)}`);
 				throw new SessionError(
 					`SDK error: ${JSON.stringify(responseAny.error)}`,
+				);
+			}
+
+			// Check for HTTP response details
+			if (responseAny.response) {
+				const httpResponse = responseAny.response as {
+					status?: number;
+					statusText?: string;
+				};
+				core.info(
+					`HTTP response status: ${httpResponse.status} ${httpResponse.statusText || ""}`,
 				);
 			}
 
