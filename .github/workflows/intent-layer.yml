@@ -42,7 +42,12 @@ jobs:
         run: bun run build
 
       - name: Install opencode CLI
-        run: npm install -g opencode-ai
+        run: |
+          npm install -g opencode-ai
+          echo "Installed opencode version:"
+          opencode --version || echo "Failed to get version"
+          echo "opencode location:"
+          which opencode || echo "opencode not found in PATH"
 
       # Use the locally built action (uses dist/index.cjs via action.yml)
       - name: Run Intent Layer Analysis
@@ -56,3 +61,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ACTIONS_STEP_DEBUG: true
