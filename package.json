@@ -7,7 +7,7 @@
 	"packageManager": "bun@1.3.5",
 	"module": "index.ts",
 	"scripts": {
-		"build": "esbuild index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js",
+		"build": "esbuild index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.cjs",
 		"check": "bun biome check",
 		"prepare": "husky",
 		"test": "bun test",
@@ -16,7 +16,7 @@
 		"act:list": "act -l",
 		"act:github-tests": "act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN",
 		"act:llm-tests": "act workflow_dispatch --input run_llm_tests=true -s OPENROUTER_API_KEY",
-		"act:intent-layer": "act pull_request -W .github/workflows/intent-layer.yml -s OPENROUTER_API_KEY"
+		"act:intent-layer": "act pull_request -W .github/workflows/intent-layer.yml -e .github/test-events/pull_request.json --secret-file .act.secrets"
 	},
 	"dependencies": {
 		"@actions/core": "2.0.1",

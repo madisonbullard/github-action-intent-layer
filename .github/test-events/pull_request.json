@@ -1,0 +1,36 @@
+{
+	"action": "synchronize",
+	"number": 1,
+	"pull_request": {
+		"number": 1,
+		"title": "Test PR for Intent Layer",
+		"body": "Testing the Intent Layer action locally with Act",
+		"state": "open",
+		"head": {
+			"ref": "test-branch",
+			"sha": "abc123def456"
+		},
+		"base": {
+			"ref": "main",
+			"sha": "def456abc123"
+		},
+		"user": {
+			"login": "test-user"
+		},
+		"html_url": "https://github.com/madisonbullard/github-action-intent-layer/pull/1",
+		"additions": 100,
+		"deletions": 50,
+		"changed_files": 5
+	},
+	"repository": {
+		"name": "github-action-intent-layer",
+		"owner": {
+			"login": "madisonbullard"
+		},
+		"full_name": "madisonbullard/github-action-intent-layer",
+		"html_url": "https://github.com/madisonbullard/github-action-intent-layer"
+	},
+	"sender": {
+		"login": "test-user"
+	}
+}
