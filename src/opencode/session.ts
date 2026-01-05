@@ -431,6 +431,8 @@ export class IntentAnalysisSession {
 			core.info(
 				`Sending prompt to session ${this.sessionId} with model ${model.providerID}/${model.modelID}`,
 			);
+			// Disable all tools to ensure we get a pure text response
+			// This is for intent layer analysis where we only need JSON output
 			const response = await this.client.session.prompt({
 				path: { id: this.sessionId },
 				body: {
@@ -438,6 +440,7 @@ export class IntentAnalysisSession {
 						providerID: model.providerID,
 						modelID: model.modelID,
 					},
+					tools: {}, // Disable all tools
 					parts: [
 						{
 							type: "text",
