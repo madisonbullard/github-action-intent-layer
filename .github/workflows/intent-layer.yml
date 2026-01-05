@@ -53,7 +53,7 @@ jobs:
       - name: Run Intent Layer Analysis
         uses: ./
         with:
-          model: openrouter/anthropic/claude-sonnet-4-20250514
+          model: openrouter/anthropic/claude-sonnet-4.5
           output: pr_comments
           files: agents
           new_nodes: true
