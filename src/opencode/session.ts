@@ -428,6 +428,9 @@ export class IntentAnalysisSession {
 		const model = config.model ?? this.defaultModel;
 
 		try {
+			core.debug(
+				`Sending prompt to session ${this.sessionId} with model ${model.providerID}/${model.modelID}`,
+			);
 			const response = await this.client.session.prompt({
 				path: { id: this.sessionId },
 				body: {
@@ -443,6 +446,19 @@ export class IntentAnalysisSession {
 					],
 				},
 			});
+
+			core.debug(
+				`Full SDK response: ${JSON.stringify(response).substring(0, 2000)}`,
+			);
+
+			// Check if response has an error
+			const responseAny = response as Record<string, unknown>;
+			if (responseAny.error) {
+				core.error(`SDK returned error: ${JSON.stringify(responseAny.error)}`);
+				throw new SessionError(
+					`SDK error: ${JSON.stringify(responseAny.error)}`,
+				);
+			}
 
 			// Extract text response from parts
 			const rawResponse = this.extractTextFromResponse(response);
