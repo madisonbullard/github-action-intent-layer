@@ -41,6 +41,9 @@ jobs:
       - name: Build action
         run: bun run build
 
+      - name: Install opencode CLI
+        run: npm install -g opencode-ai
+
       # Use the locally built action (uses dist/index.cjs via action.yml)
       - name: Run Intent Layer Analysis
         uses: ./
