@@ -41,7 +41,7 @@ jobs:
       - name: Build action
         run: bun run build
 
-      # Use the locally built action (uses dist/index.cjs via action.yml)
+      # Use the locally built action (uses dist/index.js via action.yml)
       - name: Run Intent Layer Analysis
         uses: ./
         with:
@@ -51,5 +51,4 @@ jobs:
           new_nodes: true
           split_large_nodes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

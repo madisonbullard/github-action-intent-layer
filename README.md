@@ -358,54 +358,37 @@ act workflow_dispatch --input run_github_tests=true --secret-file .act.secrets
 
 ### Running Real LLM Tests
 
-These tests make actual API calls to OpenRouter and incur costs.
+These tests make actual API calls to Anthropic/OpenRouter and incur costs.
 
 ```bash
-# Using secrets file (recommended)
-cp .act.secrets.example .act.secrets
-# Edit .act.secrets with your OPENROUTER_API_KEY
+# Interactive prompt for API key
 bun run act:llm-tests
 
-# Or use interactive prompt
-act workflow_dispatch --input run_llm_tests=true -s OPENROUTER_API_KEY
+# Or use a secrets file
+act workflow_dispatch --input run_llm_tests=true --secret-file .act.secrets
 ```
-
-### Running the Intent Layer Workflow Locally
-
-You can test the dogfooding workflow that runs the Intent Layer action on its own codebase:
-
-```bash
-# Using secrets file (recommended)
-cp .act.secrets.example .act.secrets
-# Edit .act.secrets with GITHUB_TOKEN and OPENROUTER_API_KEY
-bun run act:intent-layer
-```
-
-This uses a test event file (`.github/test-events/pull_request.json`) to simulate a PR context. Note that the workflow will fail at the GitHub API call stage since it requires a real PR to exist, but it validates that the action builds and runs correctly.
 
 ### Secrets Management
 
-**Option 1: Secrets file (recommended)**
+**Option 1: Interactive prompt (recommended)**
 ```bash
-cp .act.secrets.example .act.secrets
-# Edit .act.secrets with your values:
-#   GITHUB_TOKEN=your_github_pat_here
-#   OPENROUTER_API_KEY=your_openrouter_key_here
-act workflow_dispatch --input run_github_tests=true --secret-file .act.secrets
+act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN
+# act will securely prompt for the value
 ```
-
-> **Warning**: Never commit `.act.secrets` to version control. It's already in `.gitignore`.
 
 **Option 2: gh CLI (for GitHub token only)**
 ```bash
 act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN="$(gh auth token)"
 ```
 
-**Option 3: Interactive prompt**
+**Option 3: Secrets file**
 ```bash
-act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN
-# act will securely prompt for the value
+cp .act.secrets.example .act.secrets
+# Edit .act.secrets with your values
+act workflow_dispatch --input run_github_tests=true --secret-file .act.secrets
 ```
+
+> **Warning**: Never commit `.act.secrets` to version control. It's already in `.gitignore`.
 
 ### Troubleshooting act
 
