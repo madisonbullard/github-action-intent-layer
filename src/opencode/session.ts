@@ -462,11 +462,23 @@ export class IntentAnalysisSession {
 				await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
 				// Get the latest messages from the session
-				const messagesResponse = await this.client.session.messages({
-					path: { id: this.sessionId },
-				});
+				let messagesResponse: unknown;
+				try {
+					messagesResponse = await this.client.session.messages({
+						path: { id: this.sessionId },
+					});
+				} catch (pollError) {
+					core.warning(`Error polling messages: ${pollError}`);
+					continue; // Try again next iteration
+				}
 
-				const messages = messagesResponse as unknown as Array<{
+				// Parse the response - it comes wrapped in { data, request, response }
+				const responseWrapper = messagesResponse as { data?: unknown };
+				const messagesData = responseWrapper.data ?? messagesResponse;
+
+				const messages = (
+					Array.isArray(messagesData) ? messagesData : []
+				) as Array<{
 					info: { role: string; time?: { completed?: number } };
 					parts: Array<{ type: string; text?: string }>;
 				}>;
