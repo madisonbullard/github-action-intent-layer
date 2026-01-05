@@ -595,6 +595,9 @@ export class IntentAnalysisSession {
 	/**
 	 * Extract text content from a session prompt response.
 	 *
+	 * The SDK returns: { data: { info: AssistantMessage, parts: Part[] }, request, response }
+	 * We need to extract text from the parts array.
+	 *
 	 * @param response - Response from session.prompt API
 	 * @returns Extracted text content
 	 */
@@ -606,38 +609,37 @@ export class IntentAnalysisSession {
 			return "";
 		}
 
-		// Try response.data.parts pattern (common SDK response)
-		const dataResponse = response as {
-			data?: { parts?: Array<{ type: string; text?: string }> };
+		// The SDK wraps the response in { data, request, response }
+		// The actual content is in data.parts array
+		const sdkResponse = response as {
+			data?: {
+				info?: unknown;
+				parts?: Array<{ type: string; text?: string }>;
+			};
 		};
-		if (dataResponse.data?.parts) {
-			const textPart = dataResponse.data.parts.find((p) => p.type === "text");
-			if (textPart?.text) {
-				return textPart.text;
+
+		// Try response.data.parts pattern (SDK response structure)
+		if (sdkResponse.data?.parts && Array.isArray(sdkResponse.data.parts)) {
+			// Collect all text parts and concatenate them
+			const textParts = sdkResponse.data.parts
+				.filter((p) => p.type === "text" && p.text)
+				.map((p) => p.text);
+			if (textParts.length > 0) {
+				return textParts.join("");
 			}
 		}
 
-		// Try direct parts pattern
+		// Try direct parts pattern (in case data is unwrapped)
 		const partsResponse = response as {
 			parts?: Array<{ type: string; text?: string }>;
 		};
-		if (partsResponse.parts) {
-			const textPart = partsResponse.parts.find((p) => p.type === "text");
-			if (textPart?.text) {
-				return textPart.text;
+		if (partsResponse.parts && Array.isArray(partsResponse.parts)) {
+			const textParts = partsResponse.parts
+				.filter((p) => p.type === "text" && p.text)
+				.map((p) => p.text);
+			if (textParts.length > 0) {
+				return textParts.join("");
 			}
-		}
-
-		// Try direct info.text pattern
-		const infoResponse = response as {
-			info?: { text?: string };
-			data?: { info?: { text?: string } };
-		};
-		if (infoResponse.data?.info?.text) {
-			return infoResponse.data.info.text;
-		}
-		if (infoResponse.info?.text) {
-			return infoResponse.info.text;
 		}
 
 		// Fallback: stringify the response
