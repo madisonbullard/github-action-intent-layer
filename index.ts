@@ -366,7 +366,18 @@ async function runAnalyzeMode(
 		// Step 10: Get LLM analysis
 		let llmOutput: LLMOutput;
 		try {
-			llmOutput = await session.promptForOutput({ prompt });
+			const result = await session.prompt({ prompt });
+			core.debug(`Raw LLM response: ${result.rawResponse.substring(0, 500)}`);
+			if (result.parsedOutput) {
+				llmOutput = result.parsedOutput;
+			} else {
+				core.error(
+					`LLM response parsing failed. Raw response: ${result.rawResponse.substring(0, 1000)}`,
+				);
+				throw new Error(
+					`Invalid LLM output: ${result.parseError ?? "Unknown parse error"}`,
+				);
+			}
 		} catch (error) {
 			checkAndHandleModelAccessError(error);
 			throw error;
