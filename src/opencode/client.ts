@@ -9,8 +9,12 @@
  * and generate intent layer updates.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk";
+import * as core from "@actions/core";
+import {
+	createOpencodeClient,
+	createOpencodeServer,
+	type OpencodeClient,
+} from "@opencode-ai/sdk";
 
 /**
  * Configuration for creating an OpenCode client.
@@ -24,12 +28,8 @@ export interface OpenCodeClientConfig {
 	hostname?: string;
 	/** Server port (default: 4096) */
 	port?: number;
-	/** Connection timeout in ms (default: 30000) */
+	/** Server startup timeout in ms (default: 30000) */
 	timeout?: number;
-	/** Connection retry interval in ms (default: 300) */
-	retryInterval?: number;
-	/** Maximum number of connection retries (default: 100) */
-	maxRetries?: number;
 }
 
 /**
@@ -127,62 +127,11 @@ export function getApiKeyForProvider(providerId: string): string {
 }
 
 /**
- * Spawn the OpenCode server process.
- *
- * @param hostname - Server hostname
- * @param port - Server port
- * @returns The spawned child process
+ * Server management wrapper returned from createOpencodeServer.
  */
-function spawnOpenCodeServer(hostname: string, port: number): ChildProcess {
-	return spawn(
-		"opencode",
-		["serve", `--hostname=${hostname}`, `--port=${port}`],
-		{
-			stdio: "pipe",
-		},
-	);
-}
-
-/**
- * Wait for the OpenCode server to be ready and connected.
- *
- * @param client - The OpenCode client
- * @param maxRetries - Maximum number of connection retries
- * @param retryInterval - Time between retries in ms
- * @throws {OpenCodeClientError} If connection fails after all retries
- */
-async function waitForServerReady(
-	client: OpencodeClient,
-	maxRetries: number,
-	retryInterval: number,
-): Promise<void> {
-	let retries = 0;
-	let lastError: unknown;
-
-	while (retries < maxRetries) {
-		try {
-			// Use the app.log endpoint to verify server is ready
-			// This is the pattern used in the OpenCode GitHub App reference implementation
-			await client.app.log({
-				body: {
-					service: "intent-layer-action",
-					level: "info",
-					message: "Checking server readiness",
-				},
-			});
-			return;
-		} catch (error) {
-			lastError = error;
-		}
-
-		await sleep(retryInterval);
-		retries++;
-	}
-
-	throw new OpenCodeClientError(
-		`Failed to connect to OpenCode server after ${maxRetries} retries`,
-		lastError,
-	);
+interface ServerHandle {
+	url: string;
+	close: () => void;
 }
 
 /**
@@ -212,20 +161,12 @@ async function setupAuthentication(
 }
 
 /**
- * Simple sleep utility.
- */
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
  * Create and initialize an OpenCode client with the server.
  *
  * This function:
- * 1. Spawns the OpenCode server process
+ * 1. Uses the SDK to spawn the OpenCode server process
  * 2. Creates a client connected to the server
- * 3. Waits for the server to be ready
- * 4. Sets up authentication with the provided API key
+ * 3. Sets up authentication with the provided API key
  *
  * @param config - Client configuration
  * @returns The initialized client and server management functions
@@ -257,8 +198,6 @@ export async function createOpenCodeClientWithServer(
 		hostname = "127.0.0.1",
 		port = 4096,
 		timeout = 30000,
-		retryInterval = 300,
-		maxRetries = Math.floor(timeout / retryInterval),
 	} = config;
 
 	if (!apiKey) {
@@ -269,31 +208,40 @@ export async function createOpenCodeClientWithServer(
 		throw new OpenCodeClientError("Provider ID is required");
 	}
 
-	const serverUrl = `http://${hostname}:${port}`;
-
-	// Spawn the server process
-	const serverProcess = spawnOpenCodeServer(hostname, port);
-
-	// Create the client
-	const client = createOpencodeClient({ baseUrl: serverUrl });
+	let server: ServerHandle | null = null;
 
 	try {
-		// Wait for server to be ready
-		await waitForServerReady(client, maxRetries, retryInterval);
+		// Use SDK's createOpencodeServer which properly waits for server to be ready
+		core.info(`Starting OpenCode server on ${hostname}:${port}...`);
+		server = await createOpencodeServer({
+			hostname,
+			port,
+			timeout,
+		});
+		core.info(`OpenCode server started at ${server.url}`);
+
+		// Create the client with the working directory set
+		const directory = process.cwd();
+		core.info(`Creating client with directory: ${directory}`);
+		const client = createOpencodeClient({ baseUrl: server.url, directory });
 
 		// Set up authentication
+		core.info(`Setting up authentication for provider: ${providerId}`);
 		await setupAuthentication(client, providerId, apiKey);
+		core.info("Authentication configured successfully");
 
 		return {
 			client,
 			server: {
-				url: serverUrl,
-				close: () => serverProcess.kill(),
+				url: server.url,
+				close: () => server?.close(),
 			},
 		};
 	} catch (error) {
 		// Clean up on failure
-		serverProcess.kill();
+		if (server) {
+			server.close();
+		}
 
 		if (error instanceof OpenCodeClientError) {
 			throw error;

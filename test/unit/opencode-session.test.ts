@@ -136,16 +136,21 @@ describe("OpenCode Session", () => {
 
 	describe("IntentAnalysisSession", () => {
 		// Mock client for testing
+		// The new implementation uses promptAsync + messages polling
 		const createMockClient = (overrides: Record<string, unknown> = {}) => ({
 			session: {
-				prompt: async () => ({
-					data: {
-						parts: [{ type: "text", text: '{"updates":[]}' }],
-					},
-				}),
+				prompt: async () => ({}), // Used for injectContext with noReply
+				promptAsync: async () => ({}), // Used to send the prompt
 				abort: async () => true,
 				delete: async () => true,
-				messages: async () => [],
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [{ type: "text", text: '{"updates":[]}' }],
+						},
+					],
+				}),
 				...overrides,
 			},
 		});
@@ -162,15 +167,18 @@ describe("OpenCode Session", () => {
 
 		test("prompt returns parsed output for valid JSON", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => ({
-					data: {
-						parts: [
-							{
-								type: "text",
-								text: '{"updates":[{"nodePath":"AGENTS.md","action":"create","reason":"test","suggestedContent":"# Test"}]}',
-							},
-						],
-					},
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [
+								{
+									type: "text",
+									text: '{"updates":[{"nodePath":"AGENTS.md","action":"create","reason":"test","suggestedContent":"# Test"}]}',
+								},
+							],
+						},
+					],
 				}),
 			});
 
@@ -190,10 +198,13 @@ describe("OpenCode Session", () => {
 
 		test("prompt returns parse error for invalid JSON", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => ({
-					data: {
-						parts: [{ type: "text", text: "not valid json" }],
-					},
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [{ type: "text", text: "not valid json" }],
+						},
+					],
 				}),
 			});
 
@@ -212,10 +223,13 @@ describe("OpenCode Session", () => {
 
 		test("promptForOutput returns output for valid JSON", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => ({
-					data: {
-						parts: [{ type: "text", text: '{"updates":[]}' }],
-					},
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [{ type: "text", text: '{"updates":[]}' }],
+						},
+					],
 				}),
 			});
 
@@ -232,10 +246,13 @@ describe("OpenCode Session", () => {
 
 		test("promptForOutput throws for invalid JSON", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => ({
-					data: {
-						parts: [{ type: "text", text: "invalid" }],
-					},
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [{ type: "text", text: "invalid" }],
+						},
+					],
 				}),
 			});
 
@@ -313,10 +330,18 @@ describe("OpenCode Session", () => {
 			expect(deleteCalled).toBe(true);
 		});
 
-		test("handles response with direct parts array", async () => {
+		test("handles response with multiple text parts", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => ({
-					parts: [{ type: "text", text: '{"updates":[]}' }],
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [
+								{ type: "text", text: '{"updates":' },
+								{ type: "text", text: "[]}'" },
+							],
+						},
+					],
 				}),
 			});
 
@@ -330,11 +355,14 @@ describe("OpenCode Session", () => {
 			expect(result.parsedOutput?.updates).toEqual([]);
 		});
 
-		test("handles response with info.text", async () => {
+		test("handles messages response without data wrapper", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => ({
-					data: { info: { text: '{"updates":[]}' } },
-				}),
+				messages: async () => [
+					{
+						info: { role: "assistant", time: { completed: Date.now() } },
+						parts: [{ type: "text", text: '{"updates":[]}' }],
+					},
+				],
 			});
 
 			const session = new IntentAnalysisSession(
@@ -347,9 +375,20 @@ describe("OpenCode Session", () => {
 			expect(result.parsedOutput?.updates).toEqual([]);
 		});
 
-		test("handles string response", async () => {
+		test("handles messages response with user and assistant messages", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => '{"updates":[]}',
+				messages: async () => ({
+					data: [
+						{
+							info: { role: "user", time: { completed: Date.now() } },
+							parts: [{ type: "text", text: "test prompt" }],
+						},
+						{
+							info: { role: "assistant", time: { completed: Date.now() } },
+							parts: [{ type: "text", text: '{"updates":[]}' }],
+						},
+					],
+				}),
 			});
 
 			const session = new IntentAnalysisSession(
@@ -365,13 +404,11 @@ describe("OpenCode Session", () => {
 		test("uses custom model when provided in prompt config", async () => {
 			let capturedModel: unknown;
 			const mockClient = createMockClient({
-				prompt: async (args: {
+				promptAsync: async (args: {
 					body: { model?: { providerID: string; modelID: string } };
 				}) => {
 					capturedModel = args.body.model;
-					return {
-						data: { parts: [{ type: "text", text: '{"updates":[]}' }] },
-					};
+					return {};
 				},
 			});
 
@@ -395,13 +432,11 @@ describe("OpenCode Session", () => {
 		test("uses default model when not provided in prompt config", async () => {
 			let capturedModel: unknown;
 			const mockClient = createMockClient({
-				prompt: async (args: {
+				promptAsync: async (args: {
 					body: { model?: { providerID: string; modelID: string } };
 				}) => {
 					capturedModel = args.body.model;
-					return {
-						data: { parts: [{ type: "text", text: '{"updates":[]}' }] },
-					};
+					return {};
 				},
 			});
 
@@ -421,7 +456,7 @@ describe("OpenCode Session", () => {
 
 		test("prompt wraps client errors in SessionError", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => {
+				promptAsync: async () => {
 					throw new Error("network error");
 				},
 			});
@@ -439,7 +474,7 @@ describe("OpenCode Session", () => {
 
 		test("prompt throws ModelAccessError for 401 status code", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => {
+				promptAsync: async () => {
 					const error = new Error("Unauthorized") as Error & { status: number };
 					error.status = 401;
 					throw error;
@@ -459,7 +494,7 @@ describe("OpenCode Session", () => {
 
 		test("prompt throws ModelAccessError for authentication_error code", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => {
+				promptAsync: async () => {
 					const error = new Error("Invalid API key") as Error & {
 						code: string;
 					};
@@ -481,7 +516,7 @@ describe("OpenCode Session", () => {
 
 		test("prompt throws ModelAccessError for 429 rate limit", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => {
+				promptAsync: async () => {
 					const error = new Error("Rate limited") as Error & { status: number };
 					error.status = 429;
 					throw error;
@@ -501,7 +536,7 @@ describe("OpenCode Session", () => {
 
 		test("prompt throws ModelAccessError for 404 model not found", async () => {
 			const mockClient = createMockClient({
-				prompt: async () => {
+				promptAsync: async () => {
 					const error = new Error("Model not found") as Error & {
 						status: number;
 					};

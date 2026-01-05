@@ -428,13 +428,20 @@ export class IntentAnalysisSession {
 		const model = config.model ?? this.defaultModel;
 
 		try {
-			const response = await this.client.session.prompt({
+			core.info(
+				`Sending prompt to session ${this.sessionId} with model ${model.providerID}/${model.modelID}`,
+			);
+
+			// Use promptAsync to send the message, then poll for completion
+			// The sync prompt endpoint seems to return immediately in headless mode
+			await this.client.session.promptAsync({
 				path: { id: this.sessionId },
 				body: {
 					model: {
 						providerID: model.providerID,
 						modelID: model.modelID,
 					},
+					tools: {}, // Disable all tools
 					parts: [
 						{
 							type: "text",
@@ -444,23 +451,85 @@ export class IntentAnalysisSession {
 				},
 			});
 
-			// Extract text response from parts
-			const rawResponse = this.extractTextFromResponse(response);
+			core.info("Prompt sent, waiting for LLM response...");
 
-			// Try to parse as LLM output
-			const parseResult = parseRawLLMOutput(rawResponse);
+			// Poll for the response by checking session messages
+			const maxWaitTime = 300000; // 5 minutes max wait
+			const pollInterval = 1000; // Check every 1 second
+			const startTime = Date.now();
 
-			if (parseResult.success) {
-				return {
-					rawResponse,
-					parsedOutput: parseResult.data,
-				};
+			while (Date.now() - startTime < maxWaitTime) {
+				await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+				// Get the latest messages from the session
+				let messagesResponse: unknown;
+				try {
+					messagesResponse = await this.client.session.messages({
+						path: { id: this.sessionId },
+					});
+				} catch (pollError) {
+					core.warning(`Error polling messages: ${pollError}`);
+					continue; // Try again next iteration
+				}
+
+				// Parse the response - it comes wrapped in { data, request, response }
+				const responseWrapper = messagesResponse as { data?: unknown };
+				const messagesData = responseWrapper.data ?? messagesResponse;
+
+				const messages = (
+					Array.isArray(messagesData) ? messagesData : []
+				) as Array<{
+					info: { role: string; time?: { completed?: number } };
+					parts: Array<{ type: string; text?: string }>;
+				}>;
+
+				// Find the latest assistant message
+				const assistantMessages = messages.filter(
+					(m) => m.info.role === "assistant",
+				);
+				const latestAssistant = assistantMessages[assistantMessages.length - 1];
+				if (latestAssistant) {
+					// Check if the message is complete (has completed timestamp)
+					if (latestAssistant.info.time?.completed) {
+						core.info(
+							`LLM response completed after ${Date.now() - startTime}ms`,
+						);
+
+						// Extract text from parts
+						const textParts = latestAssistant.parts
+							.filter((p) => p.type === "text" && p.text)
+							.map((p) => p.text as string);
+						const rawResponse = textParts.join("");
+
+						// Try to parse as LLM output
+						const parseResult = parseRawLLMOutput(rawResponse);
+
+						if (parseResult.success) {
+							return {
+								rawResponse,
+								parsedOutput: parseResult.data,
+							};
+						}
+
+						return {
+							rawResponse,
+							parseError: parseResult.error,
+						};
+					}
+				}
+
+				// Log progress every 10 seconds
+				const elapsed = Date.now() - startTime;
+				if (elapsed % 10000 < pollInterval) {
+					core.info(
+						`Still waiting for LLM response... (${Math.floor(elapsed / 1000)}s)`,
+					);
+				}
 			}
 
-			return {
-				rawResponse,
-				parseError: parseResult.error,
-			};
+			throw new SessionError(
+				`Timeout waiting for LLM response after ${maxWaitTime}ms`,
+			);
 		} catch (error) {
 			// Check if this is a model access error
 			const modelAccessCheck = detectModelAccessError(error);
@@ -595,6 +664,9 @@ export class IntentAnalysisSession {
 	/**
 	 * Extract text content from a session prompt response.
 	 *
+	 * The SDK returns: { data: { info: AssistantMessage, parts: Part[] }, request, response }
+	 * We need to extract text from the parts array.
+	 *
 	 * @param response - Response from session.prompt API
 	 * @returns Extracted text content
 	 */
@@ -606,38 +678,37 @@ export class IntentAnalysisSession {
 			return "";
 		}
 
-		// Try response.data.parts pattern (common SDK response)
-		const dataResponse = response as {
-			data?: { parts?: Array<{ type: string; text?: string }> };
+		// The SDK wraps the response in { data, request, response }
+		// The actual content is in data.parts array
+		const sdkResponse = response as {
+			data?: {
+				info?: unknown;
+				parts?: Array<{ type: string; text?: string }>;
+			};
 		};
-		if (dataResponse.data?.parts) {
-			const textPart = dataResponse.data.parts.find((p) => p.type === "text");
-			if (textPart?.text) {
-				return textPart.text;
+
+		// Try response.data.parts pattern (SDK response structure)
+		if (sdkResponse.data?.parts && Array.isArray(sdkResponse.data.parts)) {
+			// Collect all text parts and concatenate them
+			const textParts = sdkResponse.data.parts
+				.filter((p) => p.type === "text" && p.text)
+				.map((p) => p.text);
+			if (textParts.length > 0) {
+				return textParts.join("");
 			}
 		}
 
-		// Try direct parts pattern
+		// Try direct parts pattern (in case data is unwrapped)
 		const partsResponse = response as {
 			parts?: Array<{ type: string; text?: string }>;
 		};
-		if (partsResponse.parts) {
-			const textPart = partsResponse.parts.find((p) => p.type === "text");
-			if (textPart?.text) {
-				return textPart.text;
+		if (partsResponse.parts && Array.isArray(partsResponse.parts)) {
+			const textParts = partsResponse.parts
+				.filter((p) => p.type === "text" && p.text)
+				.map((p) => p.text);
+			if (textParts.length > 0) {
+				return textParts.join("");
 			}
-		}
-
-		// Try direct info.text pattern
-		const infoResponse = response as {
-			info?: { text?: string };
-			data?: { info?: { text?: string } };
-		};
-		if (infoResponse.data?.info?.text) {
-			return infoResponse.data.info.text;
-		}
-		if (infoResponse.info?.text) {
-			return infoResponse.info.text;
 		}
 
 		// Fallback: stringify the response

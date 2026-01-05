@@ -530,7 +530,7 @@ jobs:
         with:
           mode: analyze
           output: pr_comments
-          model: openrouter/anthropic/claude-sonnet-4-20250514
+          model: openrouter/anthropic/claude-sonnet-4.5
           files: agents
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

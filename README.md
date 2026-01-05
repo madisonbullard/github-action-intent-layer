@@ -130,7 +130,7 @@ Or with OpenRouter:
 ```yaml
 - uses: madisonbullard/github-action-intent-layer@v1
   with:
-    model: openrouter/anthropic/claude-sonnet-4-20250514
+    model: openrouter/anthropic/claude-sonnet-4.5
   env:
     OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 ```
