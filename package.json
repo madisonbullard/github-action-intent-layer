@@ -11,7 +11,12 @@
 		"check": "bun biome check",
 		"prepare": "husky",
 		"test": "bun test",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"act": "act push",
+		"act:list": "act -l",
+		"act:github-tests": "act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN",
+		"act:llm-tests": "act workflow_dispatch --input run_llm_tests=true -s OPENROUTER_API_KEY",
+		"act:intent-layer": "act pull_request -W .github/workflows/intent-layer.yml -s OPENROUTER_API_KEY"
 	},
 	"dependencies": {
 		"@actions/core": "2.0.1",

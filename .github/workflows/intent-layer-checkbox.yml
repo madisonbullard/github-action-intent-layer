@@ -1,0 +1,44 @@
+# Intent Layer Checkbox Handler
+#
+# Handles checkbox toggles in Intent Layer PR comments.
+# When a user checks/unchecks an approval checkbox, this applies or reverts the change.
+#
+# Works with:
+# - GitHub Actions (real CI)
+# - Act (local testing - limited, as issue_comment events are hard to simulate)
+
+name: Intent Layer Checkbox
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  handle-checkbox:
+    name: Handle Checkbox
+    # Only run for comments that contain the intent layer marker
+    if: contains(github.event.comment.body, '<!-- INTENT_LAYER')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for file-level reverts
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build action
+        run: bun run build
+
+      # Use the locally built action
+      - name: Handle Checkbox Toggle
+        uses: ./
+        with:
+          mode: checkbox-handler

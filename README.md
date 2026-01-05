@@ -312,6 +312,113 @@ For `mode: checkbox-handler`, use `fetch-depth: 0` to enable file-level reverts:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
+## Local CI with act
+
+You can run the GitHub Actions workflows locally using [act](https://nektosact.com/), which uses Docker to simulate the GitHub Actions environment.
+
+### Prerequisites
+
+1. **Docker**: Install and run [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. **act**: Install via Homebrew (macOS/Linux):
+   ```bash
+   brew install act
+   ```
+   For other installation methods, see [act installation docs](https://nektosact.com/installation/index.html).
+
+### Basic Usage
+
+```bash
+# Run all CI jobs (lint, typecheck, unit tests, integration tests, build)
+bun run act
+
+# List available workflows and jobs
+bun run act:list
+```
+
+The first run downloads a ~600MB Docker image and installs Bun, so it takes a few minutes. Subsequent runs are faster.
+
+### Running Real GitHub API Tests
+
+These tests create actual branches, PRs, and commits on the repository. You'll need a GitHub **Personal Access Token (PAT)** with `repo` scope.
+
+> **Note**: This is different from the automatic `GITHUB_TOKEN` that GitHub Actions provides. When running locally with `act`, you must provide your own PAT since there's no GitHub infrastructure to generate tokens automatically.
+
+```bash
+# Interactive prompt for token (recommended - won't save to shell history)
+bun run act:github-tests
+
+# Or use gh CLI for automatic token
+act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN="$(gh auth token)"
+
+# Or use a secrets file
+cp .act.secrets.example .act.secrets
+# Edit .act.secrets with your token
+act workflow_dispatch --input run_github_tests=true --secret-file .act.secrets
+```
+
+### Running Real LLM Tests
+
+These tests make actual API calls to Anthropic/OpenRouter and incur costs.
+
+```bash
+# Interactive prompt for API key
+bun run act:llm-tests
+
+# Or use a secrets file
+act workflow_dispatch --input run_llm_tests=true --secret-file .act.secrets
+```
+
+### Secrets Management
+
+**Option 1: Interactive prompt (recommended)**
+```bash
+act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN
+# act will securely prompt for the value
+```
+
+**Option 2: gh CLI (for GitHub token only)**
+```bash
+act workflow_dispatch --input run_github_tests=true -s GITHUB_TOKEN="$(gh auth token)"
+```
+
+**Option 3: Secrets file**
+```bash
+cp .act.secrets.example .act.secrets
+# Edit .act.secrets with your values
+act workflow_dispatch --input run_github_tests=true --secret-file .act.secrets
+```
+
+> **Warning**: Never commit `.act.secrets` to version control. It's already in `.gitignore`.
+
+### Troubleshooting act
+
+#### Cache corruption on first run
+
+On the first run, act downloads and caches GitHub Actions (like `oven-sh/setup-bun`). When multiple jobs run in parallel, a race condition can corrupt the cache, causing errors like:
+
+```
+Error: Cannot find module '/var/run/act/actions/oven-sh-setup-bun@v2/dist/setup/index.js'
+```
+
+**Solution**: Clear the cache and run a single job first to populate it:
+
+```bash
+rm -rf ~/.cache/act/oven-sh-setup-bun@v2
+act push -j lint  # Run one job to populate the cache
+bun run act       # Now run all jobs
+```
+
+### Known Limitations
+
+act doesn't support all GitHub Actions features. Key differences:
+
+- `concurrency` settings are ignored
+- Step summaries and annotations are not processed
+- Some GitHub context values may be incomplete
+- Docker-in-Docker scenarios may not work
+
+For the full list, see [act unsupported functionality](https://nektosact.com/not_supported.html).
+
 ## Troubleshooting
 
 ### Action fails with API key error

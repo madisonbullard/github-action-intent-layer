@@ -1,0 +1,54 @@
+# Intent Layer Dogfooding
+#
+# This workflow runs the Intent Layer action on its own codebase.
+# It demonstrates the action's capabilities and ensures it works correctly.
+#
+# Works with:
+# - GitHub Actions (real CI)
+# - Act (local testing): bun run act:intent-layer
+
+name: Intent Layer
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze PR
+    runs-on: ubuntu-latest
+    # Skip if this is a PR from the intent-layer branch (avoid infinite loops)
+    if: "!startsWith(github.head_ref || '', 'intent-layer/')"
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build action
+        run: bun run build
+
+      # Use the locally built action (uses dist/index.js via action.yml)
+      - name: Run Intent Layer Analysis
+        uses: ./
+        with:
+          model: openrouter/anthropic/claude-sonnet-4-20250514
+          output: pr_comments
+          files: agents
+          new_nodes: true
+          split_large_nodes: true
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
