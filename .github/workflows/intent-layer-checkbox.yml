@@ -42,3 +42,5 @@ jobs:
         uses: ./
         with:
           mode: checkbox-handler
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -106,11 +106,11 @@ jobs:
 
       - name: Verify dist output
         run: |
-          if [ ! -f dist/index.js ]; then
-            echo "Build failed: dist/index.js not found"
+          if [ ! -f dist/index.cjs ]; then
+            echo "Build failed: dist/index.cjs not found"
             exit 1
           fi
-          echo "Build successful: dist/index.js exists"
+          echo "Build successful: dist/index.cjs exists"
 
   test-github-real:
     name: Real GitHub API Tests
